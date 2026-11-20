@@ -10,7 +10,13 @@ Python 3.10+ (developed on 3.14), matplotlib (only for plots). No VRP solver lib
 
 ## Status
 
-Implemented: `solution.py`, `feasibility.py`, `parser_generator.py`. Other modules are skeletons.
+Implemented: `solution.py`, `feasibility.py`, `parser_generator.py`, `clarke_wright.py`. Other modules are skeletons.
+
+Clarke-Wright baseline on every instance in `data/` (feasibility-checked):
+
+```
+python -m src.clarke_wright
+```
 
 ## Data
 
@@ -28,4 +34,5 @@ Run from the project root:
 ```
 python -m tests.test_feasibility
 python -m tests.test_parser_generator
+python -m tests.test_clarke_wright
 ```
