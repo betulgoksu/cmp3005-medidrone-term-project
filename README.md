@@ -10,13 +10,14 @@ Python 3.10+ (developed on 3.14), matplotlib (only for plots). No VRP solver lib
 
 ## Status
 
-Implemented: `solution.py`, `feasibility.py`, `parser_generator.py`, `clarke_wright.py`, `ga_split.py`. Other modules are skeletons.
+Implemented: `solution.py`, `feasibility.py`, `parser_generator.py`, `clarke_wright.py`, `ga_split.py`, `tabu_search.py`. `complexity_experiments.py` is a skeleton.
 
 Run on every instance in `data/` (feasibility-checked):
 
 ```
 python -m src.clarke_wright
 python -m src.ga_split
+python -m src.tabu_search
 ```
 
 Note: Clarke-Wright exceeds the fleet limit on A-n45-k6 (7 routes, K=6); this is reported, not hidden.
@@ -30,6 +31,17 @@ res = run_ga(inst, seed=1, pop_size=50, generations=200, pm=0.2, elite=2,
              neighbor_count=10,  # nearest neighbours tried by relocate
              time_limit=30)      # seconds, checked once per generation
 res.best, res.fitness, res.history, res.generations
+```
+
+Tabu Search from Python (relocate, swap, 2-opt; starts from Clarke-Wright by default):
+
+```python
+from src.tabu_search import run_tabu
+res = run_tabu(inst, seed=1, start=None,   # or a Solution to start from
+               max_iterations=1000,
+               tenure=(7, 15),            # int = fixed, (low, high) = dynamic
+               time_limit=30)             # seconds, checked before each iteration
+res.best, res.fitness, res.history, res.iterations
 ```
 
 ## Data
@@ -50,4 +62,5 @@ python -m tests.test_feasibility
 python -m tests.test_parser_generator
 python -m tests.test_clarke_wright
 python -m tests.test_ga_split
+python -m tests.test_tabu_search
 ```
