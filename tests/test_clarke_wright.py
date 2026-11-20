@@ -1,4 +1,4 @@
-"""Tests for clarke_wright.py.
+﻿"""Tests for clarke_wright.py.
 
 Run from the project root:  python -m tests.test_clarke_wright   (pytest also works)
 """
@@ -109,7 +109,7 @@ def test_random_tiny_valid():
 
 
 def test_medidrone_valid_and_deterministic():
-    for seed in (2026, 1, 2):
+    for seed in (11372, 1, 2):
         inst, _ = generate_medidrone(seed)
         sol = clarke_wright(inst)
         report = check_solution(sol, inst)
@@ -169,3 +169,4 @@ if __name__ == "__main__":
         t()
         print(f"ok  {t.__name__}")
     print(f"{len(tests)} tests passed")
+

@@ -1,4 +1,4 @@
-"""Tests for solution.py and feasibility.py.
+﻿"""Tests for solution.py and feasibility.py.
 
 Run from the project root:  python -m tests.test_feasibility   (pytest also works)
 
@@ -112,3 +112,4 @@ if __name__ == "__main__":
         t()
         print(f"ok  {t.__name__}")
     print(f"{len(tests)} tests passed")
+

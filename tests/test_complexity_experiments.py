@@ -1,4 +1,4 @@
-"""Tests for complexity_experiments.py (short budgets, tiny instances only).
+﻿"""Tests for complexity_experiments.py (short budgets, tiny instances only).
 
 Run from the project root:  python -m tests.test_complexity_experiments   (pytest also works)
 """
@@ -28,7 +28,7 @@ def test_gap_pct():
 
 def test_load_instances_bks():
     loaded = {inst.name: bks for inst, bks in load_instances()}
-    assert loaded["tiny-n7-s1"] == 324 and loaded["medidrone-n100-s2026"] is None
+    assert loaded["tiny-n7-s1"] == 324 and loaded["medidrone-n100-s11372"] is None
     if "A-n32-k5" in loaded:
         assert loaded["A-n32-k5"] == 784
 
@@ -101,7 +101,7 @@ def test_scaling_rows_and_plots():
     assert all(r["seconds"] > 0 and "fitted_exponent" in r for r in scaling)
 
     out = _tmp()
-    rows = run_experiments(load_instances(["tiny-n7-s1", "medidrone-n100-s2026"]), [1], 0.3, verbose=False)
+    rows = run_experiments(load_instances(["tiny-n7-s1", "medidrone-n100-s11372"]), [1], 0.3, verbose=False)
     plot_gaps(summarize(rows), out / "gap.png")
     plot_medidrone(rows, out / "med.png")
     plot_scaling(scaling, out / "scaling.png")
@@ -122,3 +122,4 @@ if __name__ == "__main__":
         t()
         print(f"ok  {t.__name__}")
     print(f"{len(tests)} tests passed")
+

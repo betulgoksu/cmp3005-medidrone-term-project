@@ -1,4 +1,4 @@
-"""Tests for tabu_search.py.
+﻿"""Tests for tabu_search.py.
 
 Run from the project root:  python -m tests.test_tabu_search   (pytest also works)
 """
@@ -19,7 +19,7 @@ from src.tabu_search import (
 def test_deltas_match_full_recompute():
     """Every O(1) delta must equal the real cost change (Bosphorus penalty included)."""
     rng = random.Random(0)
-    inst, _ = generate_medidrone(seed=2026)
+    inst, _ = generate_medidrone(seed=11372)
     routes = [r[:] for r in clarke_wright(inst).routes]
     load = [sum(inst.demand[c] for c in r) for r in routes]
     for _ in range(500):
@@ -75,7 +75,7 @@ def test_tiny_reaches_optimum():
 
 
 def test_deterministic_and_monotone():
-    inst, _ = generate_medidrone(seed=2026)
+    inst, _ = generate_medidrone(seed=11372)
     a = run_tabu(inst, seed=3, max_iterations=60)
     b = run_tabu(inst, seed=3, max_iterations=60)
     assert a.best.routes == b.best.routes and a.history == b.history
@@ -85,7 +85,7 @@ def test_deterministic_and_monotone():
 
 
 def test_time_limit_and_result_contract():
-    inst, _ = generate_medidrone(seed=2026)
+    inst, _ = generate_medidrone(seed=11372)
     t = time.perf_counter()
     res = run_tabu(inst, seed=1, max_iterations=10**6, time_limit=1.0)
     assert time.perf_counter() - t < 1.5  # checked before each iteration (~7 ms here)
@@ -95,7 +95,7 @@ def test_time_limit_and_result_contract():
 
 
 def test_random_start_seeded_and_valid():
-    inst, _ = generate_medidrone(seed=2026)
+    inst, _ = generate_medidrone(seed=11372)
     a, b, c = random_start(inst, 2), random_start(inst, 2), random_start(inst, 3)
     assert a.routes == b.routes and a.routes != c.routes  # same seed same start, new seed new start
     assert check_solution(a, inst).is_valid and check_solution(c, inst).is_valid
@@ -141,3 +141,4 @@ if __name__ == "__main__":
         t()
         print(f"ok  {t.__name__}")
     print(f"{len(tests)} tests passed")
+

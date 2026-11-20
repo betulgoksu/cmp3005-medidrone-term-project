@@ -1,4 +1,4 @@
-"""Tests for ga_split.py.
+﻿"""Tests for ga_split.py.
 
 Run from the project root:  python -m tests.test_ga_split   (pytest also works)
 """
@@ -152,7 +152,7 @@ def test_local_search_never_worse_and_stays_valid():
 
 
 def test_memetic_beats_plain_ga():
-    inst, _ = generate_medidrone(seed=2026)
+    inst, _ = generate_medidrone(seed=11372)
     plain = run_ga(inst, seed=1, pop_size=20, generations=10, ls_prob=0)
     memetic = run_ga(inst, seed=1, pop_size=20, generations=10)
     assert check_solution(memetic.best, inst).is_valid
@@ -160,7 +160,7 @@ def test_memetic_beats_plain_ga():
 
 
 def test_time_limit_and_result_contract():
-    inst, _ = generate_medidrone(seed=2026)
+    inst, _ = generate_medidrone(seed=11372)
     start = time.perf_counter()
     res = run_ga(inst, seed=1, generations=10_000, time_limit=1.0)
     elapsed = time.perf_counter() - start
@@ -179,7 +179,7 @@ def test_ga_tiny_reaches_optimum():
 
 
 def test_ga_deterministic_and_monotone():
-    inst, _ = generate_medidrone(seed=2026)
+    inst, _ = generate_medidrone(seed=11372)
     a = run_ga(inst, seed=5, pop_size=20, generations=15)
     b = run_ga(inst, seed=5, pop_size=20, generations=15)
     assert a.best.routes == b.best.routes and a.history == b.history
@@ -206,3 +206,4 @@ if __name__ == "__main__":
         t()
         print(f"ok  {t.__name__}")
     print(f"{len(tests)} tests passed")
+

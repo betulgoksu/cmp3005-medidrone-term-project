@@ -1,4 +1,4 @@
-"""Tests for parser_generator.py.
+﻿"""Tests for parser_generator.py.
 
 Run from the project root:  python -m tests.test_parser_generator   (pytest also works)
 The A-n32-k5 test is skipped until data/benchmarks/A-n32-k5.vrp and .sol are present.
@@ -165,3 +165,4 @@ if __name__ == "__main__":
         t()
         print(f"ok  {t.__name__}")
     print(f"{len(tests)} tests passed")
+
