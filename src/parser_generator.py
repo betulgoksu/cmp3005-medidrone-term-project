@@ -1,4 +1,4 @@
-"""Instance I/O, instance generators and the exact solver for tiny instances.
+﻿"""Instance I/O, instance generators and the exact solver for tiny instances.
 
 - parse_cvrplib / write_instance: TSPLIB/CVRPLIB EUC_2D files <-> ProblemInstance.
   Depot becomes node 0, other nodes keep file order as 1..n.
@@ -307,7 +307,7 @@ def _rebuild_route(mask: int, last: int, prev: list[list[int]]) -> list[int]:
 
 # --------------------------------------------------------------------------- main
 
-MEDIDRONE_SEED = 2026
+MEDIDRONE_SEED = 11372
 TINY_SPECS = [(7, 1), (8, 2), (9, 3)]  # (n, seed)
 
 
@@ -336,3 +336,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
