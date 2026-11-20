@@ -542,7 +542,29 @@ python -m tests.test_feasibility            # likewise for the other test module
 
 \section*{Appendix B: AI Tool Usage Statement}
 \addcontentsline{toc}{section}{Appendix B: AI Tool Usage Statement}
-% To be completed manually by the team.
+\section{AI Tool Usage Statement}
+
+During this project, AI assistants (specifically Gemini and Claude) were used
+solely for debugging, test and experiment execution commands, and LaTeX
+formatting and polish. Problem formulation, theoretical proofs, algorithm
+implementations, experimental runs, and the core report prose were written and
+controlled by the authors.
+
+All proofs, code behavior, numerical results, tables, and plots were verified
+independently against \texttt{src/}, \texttt{data/}, \texttt{results/},
+\texttt{solve\_exact}, the feasibility checker, and the test suite. The team
+members take full responsibility for all submitted code,
+proofs, and explanations during the oral defense.
+
+\paragraph{Example prompts.}
+\begin{itemize}
+\item \emph{Debugging and seed consistency:} ``Update the remaining stale seed
+  references in the test suite so all tests run cleanly with team seed 11372.''
+\item \emph{Experiment execution workflow:} ``Run the complexity and scaling
+  experiments with equal time budget and save the outputs to \texttt{results/}.''
+\item \emph{LaTeX formatting:} ``Format the Appendix B AI tool usage statement
+  in \LaTeX{} while keeping the core analysis and prose authored by the team.''
+\end{itemize}
 
 \begin{thebibliography}{9}
 \bibitem{papadimitriou1977}
