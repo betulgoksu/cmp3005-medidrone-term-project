@@ -1,4 +1,4 @@
-"""Experiments: equal-budget multi-seed comparison, runtime scaling, CSV and plots.
+﻿"""Experiments: equal-budget multi-seed comparison, runtime scaling, CSV and plots.
 
 1. Equal-budget runs (``run_experiments``)
    Clarke-Wright runs once per instance (deterministic). The memetic GA and Tabu
@@ -373,7 +373,7 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--instances", nargs="*", help="instance names to run (default: all in data/)")
     p.add_argument("--sizes", type=int, nargs="*", default=[25, 50, 100, 200, 400],
                    help="n values for the scaling study")
-    p.add_argument("--scaling-seed", type=int, default=2026, help="MediDrone seed for scaling instances")
+    p.add_argument("--scaling-seed", type=int, default=11372, help="MediDrone seed for scaling instances")
     p.add_argument("--skip-runs", action="store_true", help="only run the scaling study")
     p.add_argument("--skip-scaling", action="store_true", help="only run the equal-budget experiments")
     p.add_argument("--out", type=Path, default=ROOT / "results", help="output folder (default results/)")
@@ -400,3 +400,4 @@ def main(argv: list[str] | None = None) -> None:
 
 if __name__ == "__main__":
     main()
+

@@ -62,7 +62,7 @@ With the defaults the runs take about 15 minutes.
 ## Data
 
 - `data/benchmarks/`: put CVRPLIB files here (`A-n32-k5`, `A-n45-k6`, `A-n60-k9`, `A-n80-k10`, `.vrp` + `.sol`).
-- `data/medidrone/`, `data/tiny/`: generated. Regenerate (MediDrone seed 2026, tiny n=7,8,9 with exact optima in `.sol`):
+- `data/medidrone/`, `data/tiny/`: generated. Regenerate (MediDrone seed 11372, tiny n=7,8,9 with exact optima in `.sol`):
 
 ```
 python -m src.parser_generator
@@ -80,4 +80,5 @@ python -m tests.test_ga_split
 python -m tests.test_tabu_search
 python -m tests.test_complexity_experiments
 ```
+
 
