@@ -41,6 +41,7 @@ from dataclasses import dataclass
 
 from src.clarke_wright import clarke_wright
 from src.feasibility import check_solution
+from src.ga_split import decode
 from src.solution import ProblemInstance, Solution
 
 Fitness = tuple[int, int]  # (routes over K, total cost)
@@ -218,6 +219,26 @@ def run_tabu(
         history.append(best_fit[1])
 
     return TabuResult(best, best_fit, history, it)
+
+
+def random_start(inst: ProblemInstance, seed: int, attempts: int = 20) -> Solution:
+    """Seeded random starting solution: shuffle customers 1..n, cut the order with Split.
+
+    ``ga_split.decode`` uses the optimal Split and, if that needs more than K routes,
+    the K-bounded Split. If an order cannot be cut into <= K routes, another shuffle
+    is tried (up to ``attempts``); if none works, the fewest-excess order is returned
+    and Tabu Search starts fleet-infeasible (its fitness then drives the route count down).
+    Capacity and coverage always hold. Returns a Solution with cost evaluated.
+    """
+    rng = random.Random(seed)
+    best = None
+    for _ in range(attempts):
+        fit, sol = decode(rng.sample(range(1, inst.n + 1), inst.n), inst)
+        if best is None or fit < best[0]:
+            best = (fit, sol)
+        if fit[0] == 0:
+            break
+    return best[1]
 
 
 def _apply(move: tuple, routes: list[list[int]], paths: list[list[int]],

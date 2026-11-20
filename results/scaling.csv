@@ -1,0 +1,21 @@
+step,theory,n,seconds,mean_route_len,fitted_exponent
+clarke_wright_run,O(n^2 log n),25,0.00025479996111243963,,2.18
+split_Q100_call,O(n*L),25,5.7999975979328156e-05,4.17,1.08
+split_Qinf_call,O(n^2),25,0.00012390001211315393,,2.01
+tabu_iteration,O(n^2),25,0.0007468000054359436,,1.73
+clarke_wright_run,O(n^2 log n),50,0.001032999949529767,,2.18
+split_Q100_call,O(n*L),50,0.00012390001211315393,5.0,1.08
+split_Qinf_call,O(n^2),50,0.0004723999882116914,,2.01
+tabu_iteration,O(n^2),50,0.002864659996703267,,1.73
+clarke_wright_run,O(n^2 log n),100,0.004482200019992888,,2.18
+split_Q100_call,O(n*L),100,0.00025839998852461576,5.0,1.08
+split_Qinf_call,O(n^2),100,0.0018603999633342028,,2.01
+tabu_iteration,O(n^2),100,0.008633220009505749,,1.73
+clarke_wright_run,O(n^2 log n),200,0.01937639992684126,,2.18
+split_Q100_call,O(n*L),200,0.0005299999611452222,5.0,1.08
+split_Qinf_call,O(n^2),200,0.007419000030495226,,2.01
+tabu_iteration,O(n^2),200,0.031290200003422794,,1.73
+clarke_wright_run,O(n^2 log n),400,0.11148940003477037,,2.18
+split_Q100_call,O(n*L),400,0.001194500015117228,5.13,1.08
+split_Qinf_call,O(n^2),400,0.033197199925780296,,2.01
+tabu_iteration,O(n^2),400,0.09217948000878096,,1.73

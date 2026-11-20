@@ -10,7 +10,7 @@ Python 3.10+ (developed on 3.14), matplotlib (only for plots). No VRP solver lib
 
 ## Status
 
-Implemented: `solution.py`, `feasibility.py`, `parser_generator.py`, `clarke_wright.py`, `ga_split.py`, `tabu_search.py`. `complexity_experiments.py` is a skeleton.
+Implemented: `solution.py`, `feasibility.py`, `parser_generator.py`, `clarke_wright.py`, `ga_split.py`, `tabu_search.py`, `complexity_experiments.py`.
 
 Run on every instance in `data/` (feasibility-checked):
 
@@ -44,6 +44,21 @@ res = run_tabu(inst, seed=1, start=None,   # or a Solution to start from
 res.best, res.fitness, res.history, res.iterations
 ```
 
+## Experiments
+
+Equal-budget runs (Clarke-Wright once; GA and Tabu once per seed 1..N with the same time limit),
+runtime scaling on MediDrone n = 25..400, CSV and plots in `results/`:
+
+```
+python -m src.complexity_experiments --time-limit 5 --seeds 10
+```
+
+Outputs: `runs.csv` (one row per run), `summary.csv` (mean/std/best per instance and
+algorithm, valid runs only, plus feasible rate), `scaling.csv` (fitted exponents vs theory),
+`gap_by_instance.png`, `medidrone_costs.png`, `scaling.png`.
+Options: `--instances A-n32-k5 ...`, `--sizes 25 50 100`, `--skip-runs`, `--skip-scaling`, `--out DIR`.
+With the defaults the runs take about 15 minutes.
+
 ## Data
 
 - `data/benchmarks/`: put CVRPLIB files here (`A-n32-k5`, `A-n45-k6`, `A-n60-k9`, `A-n80-k10`, `.vrp` + `.sol`).
@@ -63,4 +78,5 @@ python -m tests.test_parser_generator
 python -m tests.test_clarke_wright
 python -m tests.test_ga_split
 python -m tests.test_tabu_search
+python -m tests.test_complexity_experiments
 ```
