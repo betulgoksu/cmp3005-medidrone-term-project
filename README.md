@@ -1,8 +1,8 @@
-# CMP3005 MediDrone CVRP
+﻿# CMP3005 MediDrone CVRP
 
 Capacitated Vehicle Routing for medical drone delivery: Clarke-Wright baseline, Genetic Algorithm with Split decoder, and Tabu Search, all verified by an independent feasibility checker.
 
-See `CLAUDE.md` for project rules and layout.
+See `README.md` for project rules and layout.
 
 ## Requirements
 
@@ -80,3 +80,4 @@ python -m tests.test_ga_split
 python -m tests.test_tabu_search
 python -m tests.test_complexity_experiments
 ```
+
