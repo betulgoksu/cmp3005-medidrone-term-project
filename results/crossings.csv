@@ -1,0 +1,4 @@
+instance,algorithm,seed,cost,routes,crossing_routes,crossing_arcs,routes_with_eu_customer,penalty_cost,penalty_share_pct
+medidrone-n100-s11372,clarke_wright,,18746,17,12,24,12,3600,19.2
+medidrone-n100-s11372,memetic_ga,7,18071,17,10,20,10,3000,16.6
+medidrone-n100-s11372,tabu_search,3,18329,17,11,22,11,3300,18.0

@@ -1,0 +1,9 @@
+instance,pairs,nonzero_pairs,ga_better,ts_better,median_ga,median_ts,W,p_value,significant_5pct
+A-n32-k5,10,10,10,0,784.0,827.0,0,0.002,True
+A-n45-k6,7,7,1,6,978,964,3.0,0.0781,False
+A-n60-k9,10,10,10,0,1368.5,1405.0,0,0.002,True
+A-n80-k10,10,10,9,1,1807.5,1832.0,2.5,0.0078,True
+medidrone-n100-s11372,10,10,6,4,18418.5,18482.5,15.0,0.2324,False
+tiny-n7-s1,10,0,0,0,324.0,324.0,0.0,1.0,False
+tiny-n8-s2,10,0,0,0,440.0,440.0,0.0,1.0,False
+tiny-n9-s3,10,1,1,0,342.0,342.0,0,1.0,False

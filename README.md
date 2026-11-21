@@ -1,8 +1,10 @@
-﻿# CMP3005 MediDrone CVRP
+# CMP3005 MediDrone CVRP
 
 Capacitated Vehicle Routing for medical drone delivery: Clarke-Wright baseline, Genetic Algorithm with Split decoder, and Tabu Search, all verified by an independent feasibility checker.
 
-See `README.md` for project rules and layout.
+Layout: `src/parser_generator.py` (CVRPLIB parser, MediDrone and tiny generators, exact DP), `src/solution.py` (representation, cost), `src/feasibility.py` (independent checker), `src/clarke_wright.py`, `src/ga_split.py`, `src/tabu_search.py`, `src/complexity_experiments.py` (experiments, scaling, CSV, plots), `src/analysis.py` (Wilcoxon test, tenure study, Bosphorus crossings, convergence and route plots).
+
+All code is our own. Published ideas it follows: Clarke & Wright (1964) savings, Prins (2004) giant tour + Split and the duplicate-fitness rule, Held-Karp DP for the tiny optima.
 
 ## Requirements
 
@@ -33,7 +35,7 @@ res = run_ga(inst, seed=1, pop_size=50, generations=200, pm=0.2, elite=2,
 res.best, res.fitness, res.history, res.generations
 ```
 
-Tabu Search from Python (relocate, swap, 2-opt; starts from Clarke-Wright by default):
+Tabu Search from Python (relocate, swap, 2-opt; starts from Clarke-Wright by default; `kick_start(inst, seed)` gives the seeded CW + random-relocate start used in the experiments):
 
 ```python
 from src.tabu_search import run_tabu
@@ -46,18 +48,35 @@ res.best, res.fitness, res.history, res.iterations
 
 ## Experiments
 
-Equal-budget runs (Clarke-Wright once; GA and Tabu once per seed 1..N with the same time limit),
-runtime scaling on MediDrone n = 25..400, CSV and plots in `results/`:
+One command reproduces every table and figure in the report (about 2 hours, sequential):
 
 ```
-python -m src.complexity_experiments --time-limit 5 --seeds 10
+python -m src.complexity_experiments --seeds 10
 ```
 
-Outputs: `runs.csv` (one row per run), `summary.csv` (mean/std/best per instance and
-algorithm, valid runs only, plus feasible rate), `scaling.csv` (fitted exponents vs theory),
-`gap_by_instance.png`, `medidrone_costs.png`, `scaling.png`.
-Options: `--instances A-n32-k5 ...`, `--sizes 25 50 100`, `--skip-runs`, `--skip-scaling`, `--out DIR`.
-With the defaults the runs take about 15 minutes.
+It runs, in order:
+
+1. Equal-budget runs: Clarke-Wright once per instance; memetic GA and Tabu Search once per seed 1..10
+   with the same wall-clock budget, 30 s for n <= 50 and 60 s for larger n (`--time-limit X` overrides).
+2. Tabu tenure study on A-n60-k9 (tenures 3, 7, 15, 30, 60 and [7, 15]; 5 seeds, 20 s each).
+3. Scaling study on MediDrone instances n = 25, 50, 100, 200, 400 (seed 11372).
+
+| Output in `results/` | Report item |
+|---|---|
+| `runs.csv` | raw results: one row per run, with final routes and best-cost-vs-time trace |
+| `summary.csv` | benchmark, tiny and MediDrone tables (best/mean/std, gap, runtime, optimum hits) |
+| `gap_by_instance.png`, `medidrone_costs.png` | gap and MediDrone cost figures |
+| `wilcoxon.csv` | GA vs Tabu signed-rank test per instance |
+| `crossings.csv`, `routes_medidrone.png` | Bosphorus crossings and best MediDrone route map |
+| `convergence_<instance>.png` | convergence curves (A-n45-k6, A-n60-k9, MediDrone) |
+| `tenure_study.csv`, `tenure_study.png` | parameter sensitivity |
+| `scaling.csv`, `scaling.png` | time per step / iteration / generation vs n, fitted log-log slopes |
+| `hardware.txt` | machine and Python version used |
+
+Parts can be run alone: `--skip-runs`, `--skip-study`, `--skip-scaling`, `--instances A-n32-k5 ...`,
+`--sizes 25 50 100`, `--study-instance`, `--study-time`, `--study-seeds`, `--out DIR`.
+`--analysis-only` rebuilds summary, Wilcoxon, crossings and plots from an existing `runs.csv`
+without new runs (every stored solution is re-checked with `feasibility.py`).
 
 ## Data
 
@@ -79,6 +98,7 @@ python -m tests.test_clarke_wright
 python -m tests.test_ga_split
 python -m tests.test_tabu_search
 python -m tests.test_complexity_experiments
+python -m tests.test_analysis
 ```
 
 

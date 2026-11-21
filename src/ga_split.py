@@ -277,12 +277,15 @@ class GAResult:
         fitness: (excess routes, cost) of ``best``.
         history: Best cost after each generation (for convergence plots).
         generations: Generations actually run.
+        trace: (seconds since start, best cost) after the initial population and at
+            every new best, fleet-feasible bests only (for convergence plots).
     """
 
     best: Solution
     fitness: Fitness
     history: list[int]
     generations: int
+    trace: list[tuple[float, int]]
 
 
 def run_ga(
@@ -311,6 +314,9 @@ def run_ga(
 
     Initial population: the Clarke-Wright giant tour plus random permutations, all
     improved by local search when ls_prob > 0.
+    Crossover is applied to every child (rate 1.0). A child whose (excess, cost)
+    fitness already occurs in the new population is rejected, at most pop_size
+    rejections per generation, so the population keeps distinct solutions.
     The best solution is checked with feasibility.py whenever it improves; a capacity,
     coverage or cost error there is a bug and raises AssertionError. A fleet violation
     is allowed only if no fleet-feasible order was found (fitness[0] > 0).
@@ -328,23 +334,35 @@ def run_ga(
     best = pop[0]
     _verify(best, inst)
     history = [best[0][1]]
+    trace = [(time.perf_counter() - start, best[0][1])] if best[0][0] == 0 else []
 
     gen = 0
     while gen < generations and (time_limit is None or time.perf_counter() - start < time_limit):
         gen += 1
         children = pop[:elite]
+        seen = {ind[0] for ind in children}
+        rejected = 0
         while len(children) < pop_size:
             child = order_crossover(tournament(pop, rng), tournament(pop, rng), rng)
             if rng.random() < pm:
                 mutate(child, rng)
-            children.append(make_individual(child, inst, neighbors, rng.random() < ls_prob))
+            ind = make_individual(child, inst, neighbors, rng.random() < ls_prob)
+            # diversity: reject a child whose fitness is already in the new population
+            # (Prins 2004); the cap keeps a generation at most twice as expensive.
+            if ind[0] in seen and rejected < pop_size:
+                rejected += 1
+                continue
+            seen.add(ind[0])
+            children.append(ind)
         pop = sorted(children, key=lambda ind: ind[0])
         if pop[0][0] < best[0]:
             best = pop[0]
             _verify(best, inst)
+            if best[0][0] == 0:
+                trace.append((time.perf_counter() - start, best[0][1]))
         history.append(best[0][1])
 
-    return GAResult(best[2], best[0], history, gen)
+    return GAResult(best[2], best[0], history, gen, trace)
 
 
 def make_individual(tour: list[int], inst: ProblemInstance, neighbors: list[list[int]],

@@ -11,7 +11,7 @@ from src.feasibility import check_solution
 from src.parser_generator import ROOT, generate_medidrone, parse_cvrplib, parse_solution
 from src.solution import Solution, solution_cost
 from src.tabu_search import (
-    TabuResult, _apply, draw_tenure, is_admissible, random_start, relocate_delta, run_tabu, swap_delta,
+    TabuResult, _apply, draw_tenure, is_admissible, kick_start, relocate_delta, run_tabu, swap_delta,
     two_opt_delta,
 )
 
@@ -94,25 +94,28 @@ def test_time_limit_and_result_contract():
     assert res.fitness == (0, res.best.cost)
 
 
-def test_random_start_seeded_and_valid():
+def test_kick_start_seeded_and_valid():
     inst, _ = generate_medidrone(seed=11372)
-    a, b, c = random_start(inst, 2), random_start(inst, 2), random_start(inst, 3)
+    a, b, c = kick_start(inst, 2), kick_start(inst, 2), kick_start(inst, 3)
     assert a.routes == b.routes and a.routes != c.routes  # same seed same start, new seed new start
     assert check_solution(a, inst).is_valid and check_solution(c, inst).is_valid
+    assert kick_start(inst, 2, moves=0).routes == clarke_wright(inst).routes  # no kick = plain CW
+    assert len(a.routes) <= len(clarke_wright(inst).routes)  # a kick never opens a route
     res = run_tabu(inst, seed=2, start=a, max_iterations=30)
     assert res.history[0] == a.cost and res.best.cost <= a.cost
+    assert res.trace[0] == (0.0, a.cost) and res.trace[-1][1] == res.best.cost
     assert check_solution(res.best, inst).is_valid
 
 
-def test_random_start_tight_fleet():
-    # A-n45-k6 (593 of 600 capacity): random orders may not fit in K=6 routes.
+def test_kick_start_tight_fleet():
+    # A-n45-k6: Clarke-Wright ends with 7 routes for K = 6; the kick keeps capacity and coverage.
     path = ROOT / "data/benchmarks/A-n45-k6.vrp"
     if not path.exists():
         print("  skip: A-n45-k6.vrp not in data/benchmarks/")
         return
     inst = parse_cvrplib(path)
     for seed in range(2, 6):
-        start = random_start(inst, seed)
+        start = kick_start(inst, seed)
         report = check_solution(start, inst)
         assert [e for e in report.errors if "fleet" not in e] == [], report.errors  # only fleet may fail
         res = run_tabu(inst, seed=seed, start=start, max_iterations=100)

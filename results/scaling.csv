@@ -1,21 +1,36 @@
 step,theory,n,seconds,mean_route_len,fitted_exponent
-clarke_wright_run,O(n^2 log n),25,0.0002481000265106559,,2.25
-split_Q100_call,O(n*L),25,5.579995922744274e-05,4.17,1.11
-split_Qinf_call,O(n^2),25,0.00012470001820474863,,2.06
-tabu_iteration,O(n^2),25,0.0006404599873349071,,1.92
-clarke_wright_run,O(n^2 log n),50,0.0010410998947918415,,2.25
-split_Q100_call,O(n*L),50,0.00012310000602155924,4.55,1.11
-split_Qinf_call,O(n^2),50,0.00047259998973459005,,2.06
-tabu_iteration,O(n^2),50,0.0017070000059902668,,1.92
-clarke_wright_run,O(n^2 log n),100,0.0045044999569654465,,2.25
-split_Q100_call,O(n*L),100,0.00025779998395591974,4.55,1.11
-split_Qinf_call,O(n^2),100,0.0018687000265344977,,2.06
-tabu_iteration,O(n^2),100,0.009545780019834638,,1.92
-clarke_wright_run,O(n^2 log n),200,0.023370100068859756,,2.25
-split_Q100_call,O(n*L),200,0.0005307999672368169,4.76,1.11
-split_Qinf_call,O(n^2),200,0.00782129995059222,,2.06
-tabu_iteration,O(n^2),200,0.02882117999251932,,1.92
-clarke_wright_run,O(n^2 log n),400,0.12650759995449334,,2.25
-split_Q100_call,O(n*L),400,0.0012736000353470445,4.6,1.11
-split_Qinf_call,O(n^2),400,0.03831169998738915,,2.06
-tabu_iteration,O(n^2),400,0.1220663599902764,,1.92
+clarke_wright_run,O(n^2 log n),25,0.00020050001330673695,,2.21
+split_Q100_call,O(n*L),25,4.1400082409381866e-05,4.17,1.09
+split_Qinf_call,O(n^2),25,9.479990694671869e-05,,2.02
+tabu_iteration,O(n^2),25,0.0004699400160461664,,1.88
+ga_generation,O(P*(n + nL + LS)),25,0.007387766692166527,,1.95
+relocate_delta_call,O(1),25,3.983000060543418e-07,,0.02
+full_cost_eval,O(n),25,4.148400039412081e-06,,0.99
+clarke_wright_run,O(n^2 log n),50,0.0007655998924747109,,2.21
+split_Q100_call,O(n*L),50,9.049999061971903e-05,4.55,1.09
+split_Qinf_call,O(n^2),50,0.00034929998219013214,,2.02
+tabu_iteration,O(n^2),50,0.0012778399977833033,,1.88
+ga_generation,O(P*(n + nL + LS)),50,0.03549106663558632,,1.95
+relocate_delta_call,O(1),50,3.957999870181084e-07,,0.02
+full_cost_eval,O(n),50,7.076899986714125e-06,,0.99
+clarke_wright_run,O(n^2 log n),100,0.0033491000067442656,,2.21
+split_Q100_call,O(n*L),100,0.00019129994325339794,4.55,1.09
+split_Qinf_call,O(n^2),100,0.001384599949233234,,2.02
+tabu_iteration,O(n^2),100,0.006353459996171295,,1.88
+ga_generation,O(P*(n + nL + LS)),100,0.1420496666493515,,1.95
+relocate_delta_call,O(1),100,3.9629999082535503e-07,,0.02
+full_cost_eval,O(n),100,1.4225500053726137e-05,,0.99
+clarke_wright_run,O(n^2 log n),200,0.0162283000536263,,2.21
+split_Q100_call,O(n*L),200,0.0003942000912502408,4.76,1.09
+split_Qinf_call,O(n^2),200,0.005563499988056719,,2.02
+tabu_iteration,O(n^2),200,0.021422259998507796,,1.88
+ga_generation,O(P*(n + nL + LS)),200,0.4808516000242283,,1.95
+relocate_delta_call,O(1),200,4.0500005707144737e-07,,0.02
+full_cost_eval,O(n),200,2.7300299960188567e-05,,0.99
+clarke_wright_run,O(n^2 log n),400,0.09183329995721579,,2.21
+split_Q100_call,O(n*L),400,0.0008820000803098083,4.6,1.09
+split_Qinf_call,O(n^2),400,0.02627360005863011,,2.02
+tabu_iteration,O(n^2),400,0.07622153998818249,,1.88
+ga_generation,O(P*(n + nL + LS)),400,1.735077533366469,,1.95
+relocate_delta_call,O(1),400,4.2489997576922176e-07,,0.02
+full_cost_eval,O(n),400,6.450920004863292e-05,,0.99

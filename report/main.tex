@@ -10,6 +10,8 @@
 \usepackage{array}
 \usepackage{caption}
 \usepackage{xcolor}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
 \usepackage[hidelinks]{hyperref}
 
 \graphicspath{{../data/medidrone/}{../results/}}
@@ -17,6 +19,7 @@
 \newtheorem{theorem}{Theorem}
 \newtheorem{proposition}[theorem]{Proposition}
 \newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{corollary}[theorem]{Corollary}
 \theoremstyle{definition}
 \newtheorem{definition}[theorem]{Definition}
 \theoremstyle{remark}
@@ -24,9 +27,11 @@
 
 \newcommand{\code}[1]{\texttt{#1}}
 \newcommand{\Ocal}{\mathcal{O}}
+\algrenewcommand\algorithmicrequire{\textbf{Input:}}
+\algrenewcommand\algorithmicensure{\textbf{Output:}}
 
 \title{CMP 3005 Term Project\\[2pt]
-\large MediDrone Capacitated Vehicle Routing Problem (CVRP)}
+\large Drones, Deadlines and NP-Hardness:\\ Metaheuristics for the MediDrone Capacitated Vehicle Routing Problem}
 \author{Team Student IDs: 2366912, 2364460\\
 Official seed: $11372 = 6912 + 4460$}
 \date{}
@@ -36,501 +41,858 @@ Official seed: $11372 = 6912 + 4460$}
 
 \begin{abstract}
 We model drone delivery of medical supplies across Istanbul as a Capacitated Vehicle
-Routing Problem with a Bosphorus crossing penalty. We show that the decision version is
-NP-complete, and we analyse how the penalty and the integer-rounded EUC\_2D distances
-affect the triangle inequality. We implement three methods from scratch in Python:
-a deterministic Clarke--Wright savings baseline, a memetic giant-tour genetic algorithm
-with the Split decoder, and a route-based Tabu Search. We also implement an exact dynamic
-program for instances with $n \le 12$. Every reported solution is validated by an
-independent feasibility checker. Under an equal budget of 5\,s per run over 10 seeds,
-the memetic GA reaches the best-known solution on A-n32-k5, achieves mean gaps of
-2.29--8.53\% on the larger CVRPLIB A-instances, and returns cost 18548 on every seed for
-\code{medidrone-n100-s11372}. Measured scaling exponents agree with the stated
-asymptotic bounds.
+Routing Problem with a Bosphorus crossing penalty. We prove that the decision version is
+NP-complete through the chain Hamiltonian Cycle $\le_p$ TSP $\le_p$ CVRP, show by a reduction
+from Bin Packing that already deciding whether $K$ vehicles suffice is NP-complete, and
+prove that the penalty keeps the distance metric. We implement a Clarke--Wright savings
+baseline, a memetic giant-tour Genetic Algorithm with the Split decoder and a route-based
+Tabu Search in plain Python, plus an exact dynamic program for tiny instances; every
+reported solution passes an independent feasibility checker. With equal budgets of
+30--60\,s and 10 seeds, the GA reaches the best-known solution on A-n32-k5 in every run,
+has mean gaps of 1.09--3.22\% on A-n45-k6, A-n60-k9 and A-n80-k10, and finds the best
+solution of our team instance \code{medidrone-n100-s11372} (18071, 3.6\% below
+Clarke--Wright, with the minimum possible 10 Bosphorus-crossing routes). Tabu Search is best
+on the fleet-tight A-n45-k6 and improves strongly with a longer tabu tenure. Measured
+log--log slopes match the derived costs per iteration.
 \end{abstract}
 
+
 % =====================================================================
-\section{Problem Formulation and MediDrone Model}
+\section{Introduction}
+MediDrone Istanbul flies blood samples, vaccines and urgent medication from one central
+laboratory to clinics on both sides of the Bosphorus. Each drone has a payload limit,
+each clinic orders a different amount every day, and flying across the strait costs extra.
+Every morning the operator needs a plan: which drone serves which clinics, in what order,
+such that each clinic is served exactly once, no drone is overloaded, every drone returns
+to the lab and the total flight cost is small. The plan is needed in seconds, so we look for
+good solutions with measured quality, not for proofs of optimality.
+
+This is the Capacitated Vehicle Routing Problem (CVRP)~\cite{toth2014}. Section~\ref{sec:model} formalises
+it and our MediDrone instance. Section~\ref{sec:theory} proves that the decision version is
+NP-complete through the chain Hamiltonian Cycle $\le_p$ TSP $\le_p$ CVRP, shows that already
+deciding whether $K$ vehicles suffice is NP-complete (Bin Packing), proves that the
+Bosphorus penalty keeps the distance metric, and summarises known approximation results.
+Section~\ref{sec:methods} describes our three algorithms: a Clarke--Wright savings baseline,
+a memetic giant-tour Genetic Algorithm (GA) with the Split decoder, and a route-based Tabu
+Search (TS). Section~\ref{sec:complexity} analyses their running time and validates the
+analysis empirically. Sections~\ref{sec:setup}--\ref{sec:discussion} report and discuss
+the experiments.
+
+All code is written in plain Python (standard library, matplotlib for plots) without any
+VRP or metaheuristic library. Every solution in this report was validated by the
+independent checker \code{src/feasibility.py}, which re-checks customer ids, coverage,
+capacity and fleet size and recomputes the cost from the raw distances and sides.
+
+% =====================================================================
+\section{Problem Formulation and MediDrone Model}\label{sec:model}
 
 \subsection{CVRP}
-Let $G=(V,A)$ be a complete directed graph with $V=\{0,1,\dots,n\}$. Node $0$ is the depot,
-and nodes $1,\dots,n$ are customers with integer demands $q_i \in [1,Q]$. A homogeneous
-fleet of at most $K$ vehicles of capacity $Q$ starts and ends at the depot. Arc $(i,j)$ has
-cost $c_{ij}$. A \emph{solution} is a set of routes $R_1,\dots,R_m$ with $m \le K$. Each route
-is a sequence of customers, and the depot at the start and end is implicit, as in
-\code{src/solution.py}. A solution is feasible when the following hold.
+Let $G=(V,E)$ be a complete undirected graph with $V=\{0,1,\dots,n\}$. Node $0$ is the depot,
+and nodes $1,\dots,n$ are customers with integer demands $q_i \in [1,Q]$. A fleet of $K$
+identical vehicles of capacity $Q$ is available, and edge $\{i,j\}$ has cost
+$c_{ij}=c_{ji}\ge 0$. A \emph{solution} is a set of routes $R_1,\dots,R_m$. Each route is a
+sequence of customers; the depot at its start and end is implicit, as in
+\code{src/solution.py}. A solution is feasible when
 \begin{align}
-&\textstyle\bigcup_{k=1}^{m} R_k = \{1,\dots,n\},\quad R_k \cap R_l = \emptyset\ (k\ne l)
-&&\text{(each customer exactly once)}\\
+&\textstyle\bigcup_{k=1}^{m} R_k = \{1,\dots,n\},\quad R_k \cap R_l = \emptyset\ (k\ne l),
+\ \text{each customer once in its route}
+&&\text{(coverage)}\\
 &\textstyle\sum_{i\in R_k} q_i \le Q \quad \forall k &&\text{(capacity)}\\
-&m \le K &&\text{(fleet bound)}
+&m \le K &&\text{(fleet)}
 \end{align}
-The objective is to minimise
+Its cost is
 \begin{equation}
 \textstyle C(R_1,\dots,R_m) = \sum_{k=1}^{m}\Big( c_{0,r_{k,1}} + \sum_{t=1}^{|R_k|-1} c_{r_{k,t},\,r_{k,t+1}} + c_{r_{k,|R_k|},0}\Big).
 \end{equation}
-The cost matrix is $c_{ij} = d_{ij} + P\cdot[\sigma(i)\neq\sigma(j)]$, where
-$d_{ij} = \lfloor \sqrt{(x_i-x_j)^2+(y_i-y_j)^2} + 0.5\rfloor$ is the TSPLIB EUC\_2D distance,
-$\sigma(i)\in\{\mathrm{EU},\mathrm{AS}\}$ is the side of node $i$, and $P$ is the Bosphorus
-penalty. CVRPLIB instances have no sides, which is equivalent to $P=0$.
+\emph{Optimisation version:} find a feasible solution of minimum cost.
+\emph{Decision version (CVRP-D):} given $(G,c,q,Q,K)$ and a bound $B$, is there a feasible
+solution with $C\le B$?
+
+In the implementation $c_{ij} = d_{ij} + P\cdot[\sigma(i)\neq\sigma(j)]$, where
+$d_{ij} = \lfloor \sqrt{(x_i-x_j)^2+(y_i-y_j)^2} + 0.5\rfloor$ is the TSPLIB EUC\_2D
+distance (CVRPLIB rounds to the nearest integer, and so do we; otherwise the gaps to the
+published values would be wrong), $\sigma(i)\in\{\mathrm{EU},\mathrm{AS}\}$ is the side of
+node $i$ and $P$ is the Bosphorus penalty. CVRPLIB instances have no sides, i.e.\ $P=0$.
 
 \subsection{MediDrone Istanbul model}
-\code{generate\_medidrone} in \code{src/parser\_generator.py} builds instances as follows.
+\code{generate\_medidrone} in \code{src/parser\_generator.py} builds the team instance:
 \begin{itemize}
-\item The service area is $[0,1000]^2$ with integer coordinates, and the depot is at $(500,500)$.
-\item The Bosphorus is the line $x=500$. A node is on the European side if $x<500$ and on the
-  Asian side if $x\ge 500$. The depot is therefore on the Asian side.
-\item Customer locations: the generator draws 4--6 cluster centres, alternating Europe
-  ($x\in[100,450]$) and Asia ($x\in[550,900]$), with $y\in[100,900]$. It places 80\% of the
-  customers round-robin around the centres using a Gaussian with $\sigma=50$, clipped to
-  the square. The remaining 20\% are uniform over the square.
-\item Demand $q_i \sim \mathcal{U}\{1,\dots,30\}$, $Q=100$, $K=\lceil \sum_i q_i / Q\rceil + 1$.
-\item Every arc between the two sides costs an extra $P=150$.
+\item The service area is $[0,1000]^2$ with integer coordinates; the depot is at the
+  centre, $(500,500)$.
+\item The Bosphorus is the line $x=500$: a node is European if $x<500$ and Asian if
+  $x\ge 500$. The depot is therefore on the Asian side.
+\item 4--6 cluster centres alternate between Europe ($x\in[100,450]$) and Asia
+  ($x\in[550,900]$), with $y\in[100,900]$. 80\% of the customers are placed round-robin
+  around the centres with a Gaussian of $\sigma=50$, clipped to the square; the other 20\%
+  are uniform over the square.
+\item $q_i \sim \mathcal{U}\{1,\dots,30\}$, $Q=100$, $K=\lceil \sum_i q_i / Q\rceil + 1$.
+\item Every edge between the two sides costs an extra $P=150$.
 \end{itemize}
-With the team seed $11372$ the generator draws 5 clusters. The instance
-\code{medidrone-n100-s11372} has $n=100$, $\sum_i q_i = 1575$, $Q=100$ and $K=17$. Of its
-customers, 60 are in Europe and 40 in Asia (Figure~\ref{fig:medidrone}).
+The seed is the sum of the last four digits of the team members' student IDs:
+$6912 + 4460 = 11372$. With this seed the generator draws 5 clusters, and
+\code{medidrone-n100-s11372} has $n=100$, $\sum_i q_i = 1575$, $Q=100$ and $K=17$;
+60 customers are European and 40 Asian (Figure~\ref{fig:medidrone}).
 
 \begin{figure}[ht]
 \centering
-\includegraphics[width=0.62\linewidth]{medidrone-n100-s11372.png}
-\caption{The \code{medidrone-n100-s11372} instance ($n=100$, $\sum q_i=1575$, $Q=100$, $K=17$).
-Colours mark the five generated clusters, and grey points are uniform customers. The
-vertical line $x=500$ is the Bosphorus, and every arc that crosses it costs an extra
-$P=150$. The depot is at $(500,500)$, on the Asian side.}
+\includegraphics[width=0.58\linewidth]{medidrone-n100-s11372.png}
+\caption{The team instance \code{medidrone-n100-s11372} ($n=100$, $\sum q_i=1575$, $Q=100$,
+$K=17$). Colours mark the five clusters, grey points are uniform customers. The vertical
+line $x=500$ is the Bosphorus; the depot $(500,500)$ is on the Asian side.}
 \label{fig:medidrone}
 \end{figure}
 
 % =====================================================================
-\section{Computational Complexity and Theoretical Analysis}
+\section{Complexity and Theory}\label{sec:theory}
 
-\begin{definition}[CVRP-D]
-Given an instance $I=(n, (c_{ij}), (q_i), Q, K)$ with integer data and an integer bound $B$,
-is there a feasible solution with $C \le B$?
+\subsection{CVRP-D is in NP}
+\begin{theorem}\label{thm:np}
+CVRP-D $\in$ NP, with a verifier that runs in $\Ocal(n)$ time.
+\end{theorem}
+\begin{proof}
+\emph{Certificate:} the routes, as lists of customer ids. A yes-instance always has a
+certificate with exactly $n$ customer entries and at most $\min(K,n)$ non-empty routes,
+so its size is $\Ocal(n)$.
+
+\emph{Verifier} (\code{check\_solution} in \code{src/feasibility.py}): (1) every entry is an
+integer in $[1,n]$; (2) a count array of length $n$ shows that each customer occurs exactly
+once; (3) each route's demand sum is at most $Q$; (4) the number of non-empty routes is at
+most $K$; (5) the cost is summed over the arcs $0\to r_1\to\dots\to r_\ell\to 0$ of every
+route and compared with $B$. Each entry is read a constant number of times, each route adds
+two depot arcs, and each arc cost is an $\Ocal(1)$ formula (EUC\_2D plus one side
+comparison). A certificate with more than $n$ entries or more than $n$ routes is rejected as
+soon as this is detected. The verifier therefore runs in $\Ocal(n)$ time.
+\end{proof}
+
+\subsection{Reduction chain: Hamiltonian Cycle $\le_p$ TSP $\le_p$ CVRP}
+\begin{definition}
+HC: given an undirected graph $H=(U,F)$, is there a cycle that visits every vertex exactly
+once? TSP-D: given a complete graph with non-negative integer edge weights $w$ and a bound
+$B$, is there a Hamiltonian cycle of total weight at most $B$?
 \end{definition}
 
-\begin{theorem}
-CVRP-D $\in$ NP.
-\end{theorem}
+\begin{lemma}[Step A: HC $\le_p$ TSP-D]\label{lem:hc}
+\end{lemma}
 \begin{proof}
-\emph{Certificate.} A list of at most $K$ routes, each a list of customer ids. A valid
-certificate contains exactly $n$ customer entries and at most $K$ route separators, so its
-size is $\Ocal(n+K)$, which is polynomial in the input size.
+\emph{Construction.} Given $H=(U,F)$ with $N=|U|\ge 3$, build the complete graph on $U$
+with $w(u,v)=1$ if $\{u,v\}\in F$ and $w(u,v)=2$ otherwise, and set $B=N$. Writing the
+$\binom{N}{2}$ weights takes $\Ocal(N^2)$ time, polynomial in the size of $H$. All weights
+lie in $\{1,2\}$, so $w(u,v)\le 2\le w(u,x)+w(x,v)$: the TSP instance satisfies the
+triangle inequality, as our problem definition requires.
 
-\emph{Verifier.} The verifier follows \code{check\_solution} in \code{src/feasibility.py},
-which runs five checks in sequence:
-\begin{enumerate}
-\item \code{check\_indices}: every entry is an integer in $[1,n]$.
-\item \code{check\_coverage}: a count array of length $n$ shows that each customer appears exactly once.
-\item \code{check\_capacity}: for each route, the sum of its demands is at most $Q$.
-\item \code{check\_fleet}: the number of non-empty routes is at most $K$.
-\item \code{recompute\_cost}: the cost is summed over the arcs $0\to r_1\to\dots\to r_\ell\to 0$
-  of every route, and the result is compared with $B$.
-\end{enumerate}
-Checks 1--3 and 5 read each entry a constant number of times. Check 4 and the depot arcs
-in check 5 add $\Ocal(1)$ work per route. Each arc cost is $\Ocal(1)$: either a matrix
-lookup, or the EUC\_2D formula plus one side comparison. The verifier therefore runs in
-$\Ocal(n+K)$ time once the instance is read. A certificate longer than $n+K$ entries is
-rejected after reading $\Ocal(n+K)$ of it.
+\emph{YES $\Rightarrow$ YES.} A Hamiltonian cycle of $H$ uses $N$ edges of $F$, each of
+weight 1, so it is a tour of weight $N=B$.
+
+\emph{YES $\Leftarrow$ YES.} A tour has exactly $N$ edges, each of weight at least 1. If its
+weight is at most $N$, every edge has weight exactly 1, so every edge is in $F$ and the
+tour is a Hamiltonian cycle of $H$.
 \end{proof}
 
-\begin{theorem}
-CVRP-D is NP-hard, even for Euclidean instances with $P=0$. Hence CVRP-D is NP-complete.
-\end{theorem}
+\begin{lemma}[Step B: TSP-D $\le_p$ CVRP-D]\label{lem:tsp}
+\end{lemma}
 \begin{proof}
-We reduce from the decision version of Euclidean TSP: given points $p_0,\dots,p_n$ with
-integer coordinates and a bound $B$, is there a Hamiltonian cycle of rounded EUC\_2D
-length at most $B$? This problem is NP-complete~\cite{papadimitriou1977,garey1976}.
+\emph{Construction.} Given a TSP instance on cities $\{0,\dots,n\}$ with weights $w$ and
+bound $B$, make city $0$ the depot and cities $1..n$ customers, set $c=w$, $q_i=1$ for all
+$i$, $Q=n$, $K=1$ (and $P=0$), and keep $B$. Copying the weights takes $\Ocal(n^2)$ time.
 
-\emph{Construction.} Make $p_0$ the depot and $p_1,\dots,p_n$ the customers. Set
-$q_i=1$ for all $i$, $Q=n$ (any $Q\ge\sum_i q_i$ works), $K=1$, $P=0$ (no sides), and keep
-$B$. The construction takes $\Ocal(n)$ time, or $\Ocal(n^2)$ if the cost matrix is written
-out explicitly.
+\emph{YES $\Rightarrow$ YES.} Rotate a tour of weight at most $B$ so that it starts at
+city 0. Read as one route, it visits each customer once, carries load $n\le Q$, uses
+$1\le K$ vehicle and costs the tour weight, at most $B$.
 
-\emph{Correctness.} With $K=1$, a feasible CVRP solution is exactly one route that visits
-every customer once, starting and ending at the depot. That route is a Hamiltonian cycle
-on $\{p_0,\dots,p_n\}$, and its CVRP cost equals the tour length because $P=0$. The capacity
-constraint $\sum q_i = n \le Q$ always holds. So a CVRP solution of cost at most $B$ exists
-if and only if a TSP tour of length at most $B$ exists. Combined with Theorem~1, CVRP-D is
-NP-complete.
+\emph{YES $\Leftarrow$ YES.} With $K=1$, a feasible CVRP solution is a single route
+$0\to r_1\to\dots\to r_n\to 0$ that contains every customer exactly once, i.e.\ a
+Hamiltonian cycle of the cities. Its cost equals the tour weight, so a solution of cost at
+most $B$ is a tour of weight at most $B$.
+\end{proof}
+The demands and capacity are chosen so that the capacity constraint can never bind, and
+$K=1$ forces a single route: the CVRP instance ``is'' the TSP instance.
+
+\begin{lemma}[Composition]\label{lem:comp}
+If $A\le_p B'$ via $f$ and $B'\le_p C$ via $g$, then $A\le_p C$ via $g\circ f$.
+\end{lemma}
+\begin{proof}
+Let $f$ run in time $p(|x|)$ and $g$ in time $r(|y|)$ for polynomials $p,r$. The output of
+$f$ has length at most $p(|x|)$, because a machine writes at most one symbol per step. So
+computing $g(f(x))$ takes at most $p(|x|) + r(p(|x|))$ steps, a polynomial in $|x|$.
+Correctness chains: $x\in A \iff f(x)\in B' \iff g(f(x))\in C$.
 \end{proof}
 
-\subsection{The Bosphorus penalty and the triangle inequality}
-The penalty is a function of the two endpoint \emph{sides}. It does not depend on whether
-the straight segment between the endpoints crosses $x=500$. This makes the penalty a cut
-semimetric.
+\begin{theorem}\label{thm:npc}
+CVRP-D is NP-complete.
+\end{theorem}
+\begin{proof}
+By Lemmas~\ref{lem:hc}--\ref{lem:comp}, HC $\le_p$ CVRP-D. HC is NP-complete
+\cite{karp1972}, so every problem in NP reduces to CVRP-D, i.e.\ CVRP-D is NP-hard. With
+Theorem~\ref{thm:np}, CVRP-D is NP-complete.
+\end{proof}
+Hardness ``travels'' along the chain in the opposite direction of the arrows: a polynomial
+algorithm for CVRP-D would, through $g\circ f$, decide HC in polynomial time. Our benchmark
+instances are Euclidean; the problem stays NP-hard there too, because Euclidean TSP is
+NP-complete~\cite{papadimitriou1977,garey1976} and Step~B maps it to Euclidean CVRP.
+
+\subsection{The hidden second problem: fleet feasibility is NP-complete}
+\begin{definition}
+FLEET: given demands $q_1,\dots,q_n$, capacity $Q$ and $K$, can the customers be
+partitioned into at most $K$ groups of total demand at most $Q$ each? (Distances are
+ignored.) BIN PACKING: given item sizes $s_1,\dots,s_n\le C$, bin capacity $C$ and $k$, do
+the items fit into $k$ bins?
+\end{definition}
+
+\begin{theorem}\label{thm:bp}
+FLEET is NP-complete.
+\end{theorem}
+\begin{proof}
+\emph{In NP:} the certificate is the partition (a group index per customer); summing the
+groups takes $\Ocal(n)$ time.
+
+\emph{BIN PACKING $\le_p$ FLEET:} set $q_i=s_i$, $Q=C$, $K=k$. This takes $\Ocal(n)$ time.
+A packing into $k$ bins is a partition into $k$ groups with load at most $C=Q$, and vice
+versa: in FLEET the order inside a group does not matter, and any group becomes a route by
+visiting its customers in any order. So the two answers coincide. BIN PACKING is
+NP-complete~\cite{garey1979}, hence so is FLEET.
+\end{proof}
+
+BIN PACKING is NP-complete in the strong sense~\cite{garey1979}, so FLEET stays hard even
+when the demands are small numbers, as in our instances ($q_i\le 30$). For the
+metaheuristics this means that a \emph{feasible} solution with at most $K$ routes is not
+guaranteed to be easy to find: an operator can produce a capacity-feasible solution that
+needs $K+1$ routes, and repairing it is itself a packing problem. Instances whose total
+demand is close to $KQ$ are the hard cases. In A-n45-k6 the demand is 593 for a fleet
+capacity of $6\cdot 100=600$ (98.8\%). There, Clarke--Wright ends with 7 routes, and only
+about 1 in 2000 random customer orders can be cut into 6 capacity-feasible routes. Our GA
+and TS therefore compare solutions lexicographically by $(\text{routes over }K,\ \text{cost})$,
+so the search first minimises the fleet excess and only then the cost, and the checker
+reports any run that ends with more than $K$ routes as infeasible.
+
+\subsection{The Bosphorus penalty keeps the distance metric}
+The penalty depends only on the \emph{sides} of the two endpoints, not on the geometry of
+the segment between them, so it is a cut semimetric.
 
 \begin{proposition}\label{prop:metric}
-Let $\bar c_{ij} = e_{ij} + P\,\delta_{ij}$, where $e_{ij}$ is the exact (unrounded)
-Euclidean distance and $\delta_{ij}=[\sigma(i)\ne\sigma(j)]$. For every $P\ge0$, $\bar c$
-satisfies $\bar c_{uv} \le \bar c_{uw} + \bar c_{wv}$ for all $u,v,w$.
+Let $e$ be a metric on $V$ and $\bar c_{ij} = e_{ij} + P\,\delta_{ij}$ with
+$\delta_{ij}=[\sigma(i)\ne\sigma(j)]$ and $P\ge0$. Then $\bar c$ is a metric; in particular
+$\bar c_{uv} \le \bar c_{uw} + \bar c_{wv}$ for all $u,v,w$.
 \end{proposition}
 \begin{proof}
-$e$ satisfies the triangle inequality. For $\delta$, check the two cases.
-If $\sigma(u)=\sigma(v)$, then $\delta_{uv}=0\le\delta_{uw}+\delta_{wv}$.
-If $\sigma(u)\ne\sigma(v)$, then $w$ differs from at least one of $u$ and $v$, so
-$\delta_{uw}+\delta_{wv}=1 = \delta_{uv}$. The sum of two functions that satisfy the
-triangle inequality also satisfies it, with $P\ge 0$ as the weight on $\delta$.
+Symmetry and $\bar c_{uu}=0$ are clear, and $\bar c_{uv}>0$ for $u\neq v$ because
+$e_{uv}>0$. For the triangle inequality it suffices that
+$\delta_{uv}\le\delta_{uw}+\delta_{wv}$, since a sum of two functions with this property
+has it too. If $\sigma(u)=\sigma(v)$, then $\delta_{uv}=0$. Otherwise $w$ differs in side
+from $u$ or from $v$, so $\delta_{uw}+\delta_{wv}\ge 1=\delta_{uv}$.
 \end{proof}
+The two cases have a direct reading. A \emph{same-side detour across the Bosphorus}
+($u,v\in\mathrm{EU}$, $w\in\mathrm{AS}$) pays $2P=300$ extra, so it never shortcuts the
+direct edge. A \emph{cross-side} trip ($u\in\mathrm{EU}$, $v\in\mathrm{AS}$) crosses an odd
+number of times on every path, so it always pays at least the $P$ of the direct edge.
 
-The two cases in the proof cover the two situations from the problem statement.
-\begin{itemize}
-\item \emph{Same-side detour across the Bosphorus.} Let $u,v\in\mathrm{EU}$ and
-  $w\in\mathrm{AS}$. The detour $u\to w\to v$ pays $2P=300$, while the direct arc pays
-  nothing, so the detour never shortcuts the direct arc.
-\item \emph{Cross-side.} Let $u\in\mathrm{EU}$ and $v\in\mathrm{AS}$. Every path from $u$
-  to $v$ crosses an odd number of times, so it pays at least $P$, the same as the direct arc.
-\end{itemize}
-The side-based penalty with $P=150$ therefore does \emph{not} by itself break the triangle
-inequality. Any violation in the implemented cost matrix comes from the nearest-integer
-rounding of $d$. Rounding changes each distance by at most $\tfrac12$:
-\[
-c_{uv} \le e_{uv} + \tfrac12 + P\delta_{uv} \le \bar c_{uw} + \bar c_{wv} + \tfrac12
-\le c_{uw} + c_{wv} + \tfrac32 .
-\]
-Since all costs are integers, $c_{uv} \le c_{uw}+c_{wv}+1$, so the violation is at most one
-unit. The following counterexamples were computed with the project's own
-\code{ProblemInstance.cost} ($P=150$).
-\begin{itemize}
-\item \emph{Same side.} $u=(0,0)$, $w=(1,1)$, $v=(2,2)$, all in EU:
-  $c_{uw}=c_{wv}=\lfloor 1.414+0.5\rfloor = 1$, but $c_{uv}=\lfloor 2.828+0.5\rfloor = 3 > 2$.
-\item \emph{Cross side, via the depot.} $u=(498,498)\in\mathrm{EU}$, $w=(499,499)\in\mathrm{EU}$,
-  $v=(500,500)$, the depot, in AS: $c_{uw}=1$, $c_{wv}=1+150=151$, but
-  $c_{uv}=3+150=153 > 152$.
-\end{itemize}
+With the exact Euclidean distance as $e$, the MediDrone distance of the assignment is a
+metric for every $P\ge 0$. The implemented integer cost uses the rounded $d$, and rounding
+alone can break the triangle inequality by one unit: $|d_{ij}-e_{ij}|\le\tfrac12$ gives
+$c_{uv}\le c_{uw}+c_{wv}+\tfrac32$, hence $c_{uv}\le c_{uw}+c_{wv}+1$ for integers. Two
+cases computed with the project's own \code{ProblemInstance.cost} ($P=150$):
+$u=(0,0), w=(1,1), v=(2,2)$, all European, give $c_{uw}=c_{wv}=1$ but $c_{uv}=3$;
+$u=(498,498), w=(499,499)$ (European) and the depot $v=(500,500)$ give $c_{uw}=1$,
+$c_{wv}=151$ but $c_{uv}=153$. The violation is at most one unit, independent of $P$, and
+it is the same rounding that CVRPLIB uses for its published values. None of our algorithms
+relies on the triangle inequality for correctness; it matters only for the approximation
+argument below.
 
-\begin{remark}
-In both counterexamples the violation is one unit and does not depend on $P$. The penalty
-matters for the structure of solutions rather than for metricity. The depot is in Asia, so
-every route that serves at least one European customer crosses at least twice. Its cost
-therefore includes at least $2P=300$. In Clarke--Wright, the saving of two European
-customers $i,j$ is $s_{ij} = c_{i0}+c_{0j}-c_{ij}$. Both $c_{i0}$ and $c_{0j}$ include $P$,
-so $s_{ij}$ grows by $2P$, and the algorithm merges European customers early.
-\end{remark}
+A practical consequence of the penalty: since the depot is Asian, every route that serves
+a European customer crosses at least twice and pays at least $2P=300$. For two European
+customers the Clarke--Wright saving $s_{ij}=c_{i0}+c_{0j}-c_{ij}$ contains $+2P$, so
+European customers are merged early.
+
+\subsection{Approximation: what can be guaranteed (bonus)}
+Haimovich and Rinnooy Kan's \emph{iterated tour partitioning} (ITP)~\cite{haimovich1985}
+turns a TSP tour into routes: take a tour through the depot and all customers, cut it into
+consecutive segments that respect the capacity, and connect each segment's ends to the
+depot. Trying all $Q$ cutting offsets and averaging shows, for unit demands, that the best
+offset costs at most $\tfrac{2}{Q}\sum_i c_{0i} + (1-\tfrac1Q)\,T$, where $T$ is the tour
+length. Two lower bounds hold for every feasible solution: $\mathrm{OPT}\ge\tfrac{2}{Q}\sum_i
+c_{0i}$ (each vehicle reaches at most $Q$ customers, and visiting customer $i$ requires
+going out to it and back) and $\mathrm{OPT}\ge T^*$ (the routes glued at the depot form a
+closed walk, which the triangle inequality shortcuts to a tour). With an
+$\alpha$-approximate tour, $T\le\alpha T^*$, so ITP is a
+$(1+\alpha(1-\tfrac1Q))$-approximation; with Christofides' $\alpha=\tfrac32$ this is below
+$2.5$. The TSP ratio carries over almost one-to-one because the radial term is paid at most
+once. Both lower bounds use the triangle inequality, which is why the metric proof above
+matters. For unsplittable demands, as in our instances, a similar argument gives
+a constant ratio of about $\alpha+2$~\cite{altinkemer1987}, and later work
+improved the unit-demand constant slightly below $1+\alpha$~\cite{blauth2022}. These
+guarantees are far weaker than what metaheuristics achieve in practice (a few percent above
+the best known solutions, Section~\ref{sec:results}); Section~\ref{sec:discussion} returns
+to this contrast.
 
 % =====================================================================
-\section{Algorithms, Implementation and Asymptotic Complexity}
-All algorithms use the same cost matrix (\code{inst.cost}, penalty included). They are
-written in plain Python without any VRP or metaheuristic library. Throughout, $L$ denotes
-the maximum number of customers on a route.
+\section{Algorithms}\label{sec:methods}
+All three algorithms use the same cost matrix (\code{inst.cost}, penalty included) and the
+same solution representation: a list of routes, each a list of customer ids. $L$ denotes
+the maximum number of customers on a route; with $Q=100$ and mean demand 15.5, $L$ stays
+around 4--5 on MediDrone instances (Table~\ref{tab:scaling}).
 
-\subsection{Clarke--Wright savings baseline (\code{src/clarke\_wright.py})}
-The baseline is the parallel savings algorithm~\cite{clarke1964}.
-\begin{enumerate}
-\item Start with one route per customer.
-\item Compute $s_{ij}=c_{i0}+c_{0j}-c_{ij}$ for all pairs $i<j$, and sort the savings in
-  decreasing order.
-\item Scan the sorted list. Merge the routes of $i$ and $j$ when the routes are different,
-  $i$ and $j$ are both route endpoints, and the combined load is at most $Q$. Reversing a
-  route is allowed, since costs are symmetric.
-\item Stop at the first non-positive saving, unless the solution still has more than $K$
-  routes. In that case, non-positive merges continue in order to reduce the fleet.
-\item If more than $K$ routes remain, \code{repair\_fleet} empties the smallest route. It
-  moves each customer to its cheapest capacity-feasible insertion position in another
-  route. It stops cleanly if some customer fits nowhere, and \code{feasibility.py} then
-  reports the fleet violation.
-\end{enumerate}
-\emph{Complexity.} Computing the savings costs $\Ocal(n^2)$ and sorting them costs
-$\Ocal(n^2\log n)$. Each candidate pair is checked in $\Ocal(1)$. There are at most $n-1$
-merges, each costing $\Ocal(n)$ to relabel route ids. The total is
-$\Ocal(n^2\log n)$ time and $\Ocal(n^2)$ space for the savings list. Removing one route in
-the repair costs $\Ocal(n^2)$, and $\Ocal(n^3)$ in the worst case if $\Ocal(n)$ routes had to
-be removed. The algorithm is deterministic, so it is run once per instance.
+\subsection{Clarke--Wright savings (\code{src/clarke\_wright.py})}
+Algorithm~\ref{alg:cw} is the parallel savings method~\cite{clarke1964}. Merging two
+routes at endpoints $i$ and $j$ removes the edges $(i,0)$ and $(0,j)$ and adds $(i,j)$,
+which saves $s_{ij}$. Our version adds one rule for the fleet bound: non-positive savings
+are still merged while more than $K$ routes remain, and if the scan ends with more than $K$
+routes, \code{repair\_fleet} empties the smallest route by cheapest feasible insertion.
+It stops cleanly when a customer fits nowhere; the checker then reports the fleet violation.
 
-\subsection{Memetic giant-tour GA with the Split decoder (\code{src/ga\_split.py})}
-\paragraph{Representation.} A chromosome is a permutation of $1..n$, called a giant tour,
-with no depot visits. The Split decoder~\cite{prins2004} determines the route boundaries
-optimally for a given order.
+\begin{algorithm}[ht]
+\caption{Clarke--Wright savings with fleet repair}\label{alg:cw}
+\begin{algorithmic}[1]
+\Require instance $(c,q,Q,K)$
+\State routes $\gets \{(i) : i=1..n\}$ \Comment{one route per customer}
+\State $S\gets [(s_{ij},i,j) : 1\le i<j\le n]$ with $s_{ij}=c_{i0}+c_{0j}-c_{ij}$; sort $S$ decreasing
+\For{$(s,i,j)\in S$}
+  \If{$s\le 0$ \textbf{and} $|\text{routes}|\le K$} \textbf{break} \EndIf
+  \If{$i,j$ in different routes $A,B$, both are endpoints, $\text{load}(A)+\text{load}(B)\le Q$}
+    \State replace $A,B$ by their join through edge $(i,j)$ (reversing a route if needed)
+  \EndIf
+\EndFor
+\If{$|\text{routes}|>K$} \State routes $\gets$ \Call{RepairFleet}{routes} \EndIf
+\State \Return routes
+\end{algorithmic}
+\end{algorithm}
 
-\paragraph{Split.} Build a DAG on nodes $0..m$. Arc $(i,j)$ represents the route
-$t_i,\dots,t_{j-1}$ and exists only if that route's load is at most $Q$. Its weight is
-$w(i,j) = c_{0t_i} + \sum_{k=i}^{j-2} c_{t_kt_{k+1}} + c_{t_{j-1}0}$. Bellman's recursion
+\subsection{Memetic giant-tour GA with Split (\code{src/ga\_split.py})}
+\paragraph{Representation and Split.} A chromosome is a giant tour: a permutation of
+$1..n$ without depot visits. Split~\cite{prins2004} finds the optimal way to cut it into
+routes. Build a DAG with nodes $0..n$, where node $j$ means ``the first $j$ customers of the
+tour are served''. For $i<j$ there is an arc $(i,j)$ iff $\sum_{k=i}^{j-1} q_{t_k}\le Q$; it
+stands for the route $t_i,\dots,t_{j-1}$ and has weight
 \[
-V_0 = 0, \qquad V_j = \min_{i<j,\;(i,j)\text{ exists}} V_i + w(i,j)
+w(i,j) = c_{0t_i} + \textstyle\sum_{k=i}^{j-2} c_{t_kt_{k+1}} + c_{t_{j-1}0}.
 \]
-gives the optimal split. Each weight is extended in $\Ocal(1)$ from the previous one, and
-the inner loop stops as soon as the load exceeds $Q$. Split is therefore $\Ocal(nL)$ when
-capacity is binding and $\Ocal(n^2)$ when it is not ($Q\ge\sum q_i$).
+Every path from $0$ to $n$ is a capacity-feasible cut, and a shortest path is an optimal
+one. The DAG is topologically ordered, so Bellman's recurrence solves it:
+\[
+V_0 = 0, \qquad V_j = \min_{i<j,\ (i,j)\text{ is an arc}} \big(V_i + w(i,j)\big),\qquad
+\text{answer } V_n .
+\]
+\emph{Complexity.} For each $i$, the inner loop extends the route one customer at a time;
+the load and $w(i,j)$ are updated in $\Ocal(1)$ from $w(i,j-1)$ (replace the return edge
+$c_{t_{j-2}0}$ by $c_{t_{j-2}t_{j-1}}+c_{t_{j-1}0}$). The loop stops as soon as the load
+exceeds $Q$. Without a binding capacity it runs $n-i$ times, so the total is
+$\sum_i (n-i)=\Ocal(n^2)$. If every route holds at most $L$ customers, the loop runs at
+most $L$ times for each $i$, so Split costs $\Ocal(nL)$; since $L\le Q/\min_i q_i$ does not
+grow with $n$, this is linear in $n$ in practice. When the optimal cut needs more than $K$
+routes, \code{split\_bounded} solves the same DAG with an extra route-count index,
+$V_{r,j}=\min_i V_{r-1,i}+w(i,j)$, in $\Ocal(KnL)$.
 
-\paragraph{Fleet bound.} If the unbounded Split uses more than $K$ routes,
-\code{split\_bounded} runs the same DP with a route-count dimension in $\Ocal(KnL)$.
-\code{min\_routes} fills routes greedily along the order, which gives the fewest routes any
-split of that order can use. The fitness is the pair
-$(\text{routes over }K,\ \text{cost})$, compared lexicographically. Any fleet-feasible order
-beats any infeasible one, and no penalty weight has to be tuned.
+\paragraph{Fitness.} The fitness of a tour is
+$(\max(0,\text{routes}-K),\ \text{cost})$ of its decoded solution, compared
+lexicographically: any fleet-feasible solution beats any infeasible one, and no penalty
+weight has to be tuned. On fleet-feasible tours this is the total cost, as required.
 
-\paragraph{Operators and parameters.}
+\paragraph{Operators and parameters} (defaults of \code{run\_ga}):
 \begin{itemize}
-\item \emph{Population:} 50 individuals. The initial population is the Clarke--Wright giant
-  tour plus random permutations.
-\item \emph{Selection and crossover:} binary tournament selection, then Order Crossover (OX).
-\item \emph{Mutation:} with probability $p_m=0.2$, either a swap or a segment inversion,
+\item \emph{Population} $P=50$. The initial population is the Clarke--Wright giant tour plus
+  random permutations, each improved by local search.
+\item \emph{Selection:} binary tournament. It keeps selection pressure moderate and needs no
+  fitness scaling, which suits the lexicographic fitness.
+\item \emph{Crossover:} Order Crossover (OX), applied to every child (rate 1.0). OX keeps a
+  slice of one parent in place and fills the rest in the other parent's order, so the child
+  is always a permutation and keeps relative customer orders, which Split turns into routes.
+\item \emph{Mutation} with probability $p_m=0.2$: swap two customers, or invert a segment,
   each with probability $\tfrac12$.
-\item \emph{Elitism:} the 2 best individuals survive unchanged.
-\item \emph{Local search:} every initial individual, and each child with probability 0.2,
-  receives local search, which makes the GA memetic.
+\item \emph{Memetic local search} with probability $0.2$ per child (and on the whole initial
+  population): first-improvement 2-opt inside each route and granular relocate between
+  routes, restricted to the $G=10$ nearest neighbours, repeated until neither improves. The
+  result is concatenated into a new giant tour and decoded again; it never increases the
+  cost or the number of routes.
+\item \emph{Replacement:} generational with elitism; the 2 best individuals survive
+  unchanged and $P-2$ children are created.
+\item \emph{Diversity:} a child whose fitness already occurs in the new population is
+  rejected (the duplicate rule of Prins~\cite{prins2004}), at most $P$ rejections per
+  generation, so the population holds distinct solutions and does not collapse onto copies
+  of the elite.
+\item \emph{Stopping:} the wall-clock budget, checked once per generation.
 \end{itemize}
-The local search alternates two moves until neither improves:
-\begin{itemize}
-\item first-improvement intra-route 2-opt, with $\Delta = c_{ac}+c_{bd}-c_{ab}-c_{cd}$;
-\item granular inter-route relocate, restricted to the $G=10$ nearest neighbours, costing
-  $\Ocal(nGL)$ per pass instead of $\Ocal(n^2)$.
-\end{itemize}
-Local search never raises the cost, never breaks capacity and never adds a route. The
-improved routes are re-encoded as the child's giant tour. Each new best solution is
-checked by \code{feasibility.py}.
 
-\subsection{Route-based Tabu Search (\code{src/tabu\_search.py})}
-\paragraph{Neighbourhood.} Each iteration evaluates three neighbourhoods in full:
-\begin{itemize}
-\item \emph{relocate:} move customer $u$ from route $A$ to any position in another route
-  $B$, provided $\ell_B+q_u\le Q$. This may empty $A$.
-\item \emph{inter-route swap:} exchange $u\in A$ with $v\in B$, provided both new loads are
-  at most $Q$.
-\item \emph{intra-route 2-opt:} reverse a segment of a route.
-\end{itemize}
-The search applies the best admissible move, even if it increases the cost.
+\begin{algorithm}[ht]
+\caption{Memetic giant-tour GA}\label{alg:ga}
+\begin{algorithmic}[1]
+\Require instance, seed, $P$, $p_m$, $p_{ls}$, elite $e$, time budget
+\State pop $\gets$ \{CW giant tour\} $\cup$ $(P-1)$ random permutations, each decoded by Split and improved by LS
+\While{time budget not exhausted}
+  \State children $\gets$ the $e$ best of pop; seen $\gets$ their fitness values
+  \While{$|\text{children}|<P$}
+    \State $p_1,p_2\gets$ two binary tournaments; child $\gets$ OX$(p_1,p_2)$
+    \State with probability $p_m$: swap or invert a segment of child
+    \State decode child with Split; with probability $p_{ls}$: LS on its routes, re-encode, decode
+    \If{fitness(child) $\in$ seen \textbf{and} rejections $<P$} reject child
+    \Else\ add child to children and its fitness to seen \EndIf
+  \EndWhile
+  \State pop $\gets$ children sorted by fitness; update and \Call{Check}{} the best
+\EndWhile
+\State \Return best solution
+\end{algorithmic}
+\end{algorithm}
 
-\paragraph{$\Ocal(1)$ deltas.} Each move changes only the arcs adjacent to the touched
-positions. Let $p$ be the route path with the depot at both ends.
-\begin{itemize}
-\item \emph{Relocate} of $u=p_i$ from $A$ to between $p'_{j-1}$ and $p'_j$ in $B$:
-  $\Delta = c_{p_{i-1}p_{i+1}} - c_{p_{i-1}u} - c_{up_{i+1}} + c_{p'_{j-1}u} + c_{up'_j} - c_{p'_{j-1}p'_j}$.
-\item \emph{Swap} removes two arcs and adds two arcs in each of the two routes.
-\item \emph{2-opt} uses $\Delta = c_{ac}+c_{bd}-c_{ab}-c_{cd}$.
-\end{itemize}
-All terms are read from \code{inst.cost}, so a change in the number of Bosphorus crossings
-is already part of $\Delta$ and needs no separate update. A unit test compares 500 random
-deltas against full recomputation on the MediDrone instance.
+\subsection{Tabu Search (\code{src/tabu\_search.py})}
+Our Tabu Search follows the standard short-term-memory scheme of Glover and
+Laguna~\cite{glover1997}.
 
-\paragraph{Fleet handling.} The fitness is $(\max(0, m-K),\ C)$, compared lexicographically
-as in the GA. The search has no route-opening move. A start with more than $K$ routes can
-only reduce its route count, by a relocate that empties a route.
+\paragraph{Initial solution.} The Clarke--Wright solution. For the 10-seed experiments, each
+seed applies a \emph{kick} of $\max(3,\lfloor n/10\rfloor)$ seeded random relocates to it
+(\code{kick\_start}): a random customer moves to a random position of another route with
+enough spare capacity. The kick keeps capacity and coverage, never adds a route and gives
+each seed a different Clarke--Wright-based start; without it, all seeds would follow almost
+the same trajectory.
 
-\paragraph{Tabu list and aspiration.} Relocate and swap make the attribute
-$(\text{node}, u, A)$ tabu, which forbids $u$ from re-entering route $A$. 2-opt makes the
-removed arcs $(\text{arc}, a, b)$ tabu. The tenure is drawn uniformly from $[7,15]$ for each
-move. A tabu move is still admissible if its fitness is strictly better than the best found
-so far (aspiration). Ties among equal candidates are broken by seeded reservoir sampling.
+\paragraph{Neighbourhood.} Each iteration evaluates three neighbourhoods completely (no
+candidate list):
+\emph{relocate} (move $u$ from route $A$ to any position of another route $B$, if
+$\ell_B+q_u\le Q$; may empty $A$), \emph{inter-route swap} (exchange $u\in A$ and $v\in B$
+if both new loads are at most $Q$), and \emph{intra-route 2-opt} (reverse a segment). The
+best admissible move is applied even if it increases the cost.
 
-\paragraph{Start solutions.} Seed 1 starts from Clarke--Wright. For seeds $>1$, the start
-is a seeded random permutation decoded by Split, or by \code{split\_bounded} when more than
-$K$ routes would be used. If no order fits in $K$ routes, up to 20 shuffles are tried, and
-the order with the smallest excess is kept. This start is checked by \code{feasibility.py},
-which permits only a fleet excess.
+\paragraph{Delta evaluation in $\Ocal(1)$.} A move changes only the edges next to the
+touched positions. With $p$ the route as a path $0,p_1,\dots,p_\ell,0$, relocating
+$u=p_i$ from $A$ to between $p'_{j-1}$ and $p'_j$ of $B$ changes the cost by
+\[
+\Delta = \underbrace{c_{p_{i-1}p_{i+1}} - c_{p_{i-1}u} - c_{up_{i+1}}}_{\text{remove $u$ from $A$}}
+\;+\; \underbrace{c_{p'_{j-1}u} + c_{up'_j} - c_{p'_{j-1}p'_j}}_{\text{insert $u$ into $B$}} .
+\]
+Swap removes two edges and adds two in each route; 2-opt on positions $i..j$ gives
+$\Delta=c_{p_{i-1}p_j}+c_{p_ip_{j+1}}-c_{p_{i-1}p_i}-c_{p_jp_{j+1}}$ (costs are symmetric,
+so the reversed middle part keeps its cost). All terms come from \code{inst.cost}, so a
+change in the number of Bosphorus crossings is part of $\Delta$ automatically. A unit test
+compares 500 random deltas with full recomputation on the MediDrone instance.
 
-\paragraph{Complexity per iteration.} The neighbourhood sizes are:
-\begin{itemize}
-\item relocate: $n(n+R)$ positions, where $R$ is the number of routes;
-\item swap: at most $n^2/2$ pairs;
-\item 2-opt: $\sum_r L_r^2/2 = \Ocal(nL)$.
-\end{itemize}
-Each candidate costs $\Ocal(1)$, so one iteration takes $\Ocal(n^2)$ time, plus $\Ocal(n)$ to
-apply the chosen move.
+\paragraph{Tabu list, tenure and aspiration.} After a relocate or swap that moves $u$ out
+of route $A$, the attribute $(u,A)$ is tabu: $u$ may not re-enter $A$. After a 2-opt, the
+two removed edges may not be re-added. Each attribute is stored with the last iteration in
+which it is tabu. The tenure is drawn uniformly from $[7,15]$ for each move (dynamic
+tenure; Section~\ref{sec:tenure} compares it with fixed values). A tabu move is allowed if
+it produces a solution better than the best found so far (aspiration). Ties between equally
+good moves are broken uniformly at random with the run's seeded generator.
 
-\subsection{Exact verifier for tiny instances (\code{solve\_exact})}
-For $n\le12$, \code{src/parser\_generator.py} computes provably optimal solutions by
-dynamic programming in two steps.
-\begin{enumerate}
-\item \emph{Held--Karp:} compute the cheapest single route for every capacity-feasible
-  customer subset. This takes $\Ocal(2^n n^2)$ time.
-\item \emph{Set partitioning:} compute
-  $f_r(M)=\min_{S\subseteq M,\ \min M\in S} \mathrm{route}(S) + f_{r-1}(M\setminus S)$, then
-  take $\min_{r\le K} f_r(\{1..n\})$. Fixing the lowest customer of $M$ in $S$ removes
-  symmetric duplicates. Enumerating submasks costs $\Ocal(K\,3^n)$.
-\end{enumerate}
-The tiny instances have $Q=20$. The optima, stored in \code{data/tiny/*.sol}, are 324 for
-\code{tiny-n7-s1} ($K=3$), 440 for \code{tiny-n8-s2} ($K=4$) and 342 for
-\code{tiny-n9-s3} ($K=4$). These values serve as ground truth for the heuristics.
+\paragraph{Capacity and fleet handling.} Moves that would overload a route are not
+generated, so every visited solution is capacity-feasible and no penalty weight $\lambda$
+is needed. We chose this because Split, Clarke--Wright and the checker all work on
+capacity-feasible solutions, and because a forbidden move costs only one load comparison.
+The price is that the search cannot pass through overloaded solutions, which matters on
+instances with almost no spare capacity. The fleet bound is handled like in the GA, with
+the lexicographic fitness $(\max(0,m-K),\ C)$; there is no move that opens a new route.
+
+\paragraph{Parameters.} Tenure $[7,15]$; full neighbourhood of all three moves; no
+$\lambda$ (infeasible moves forbidden); kick size $\max(3,\lfloor n/10\rfloor)$; stopping
+criterion: the wall-clock budget, checked before each iteration.
+
+\begin{algorithm}[ht]
+\caption{Tabu Search}\label{alg:ts}
+\begin{algorithmic}[1]
+\Require instance, seed, start solution $x$ (CW + kick), tenure range, time budget
+\State best $\gets x$; tabu $\gets$ empty map attribute $\to$ last tabu iteration; it $\gets 0$
+\While{time budget not exhausted}
+  \State it $\gets$ it $+1$; chosen $\gets$ none
+  \For{every relocate, swap and 2-opt move $m$ of $x$ that keeps all loads $\le Q$}
+    \State $f\gets$ (routes over $K$, cost$(x)+\Delta(m)$) \Comment{$\Delta$ in $\Ocal(1)$}
+    \If{$m$ not tabu at it \textbf{or} $f<$ fitness(best)} keep $m$ if $f$ is the best seen (random tie-break) \EndIf
+  \EndFor
+  \If{chosen $\ne$ none}
+    \State apply chosen to $x$; mark its reverse attributes tabu until it $+$ tenure
+    \If{fitness$(x)<$ fitness(best)} best $\gets x$; \Call{Check}{best} \EndIf
+  \EndIf
+\EndWhile
+\State \Return best
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{Exact solver for the tiny instances (\code{solve\_exact})}
+For $n\le 12$, \code{src/parser\_generator.py} computes provably optimal solutions by
+dynamic programming. Step 1 (Held--Karp) computes the cheapest single route for every
+capacity-feasible customer subset in $\Ocal(2^n n^2)$. Step 2 (set partitioning) computes
+$f_r(M)=\min_{S\subseteq M,\ \min M\in S} \mathrm{route}(S) + f_{r-1}(M\setminus S)$ and
+returns $\min_{r\le K} f_r(\{1..n\})$; forcing the lowest customer of $M$ into $S$ avoids
+counting the same partition twice, and enumerating submasks costs $\Ocal(K\,3^n)$. No ILP
+solver is used. The three tiny instances have $Q=20$; their optima are 324
+(\code{tiny-n7-s1}, $K=3$), 440 (\code{tiny-n8-s2}, $K=4$) and 342 (\code{tiny-n9-s3},
+$K=4$).
 
 % =====================================================================
-\section{Experimental Setup}
-\code{src/complexity\_experiments.py} runs every algorithm on three groups of instances:
-\begin{itemize}
-\item the three tiny instances;
-\item the CVRPLIB set A instances A-n32-k5, A-n45-k6, A-n60-k9 and A-n80-k10, with best
-  known solutions (BKS) 784, 944, 1354 and 1763 taken from their \code{.sol} files;
-\item \code{medidrone-n100-s11372}.
-\end{itemize}
-Clarke--Wright is deterministic and runs once per instance. The GA and Tabu Search each
-run with seeds $1,\dots,10$ and an equal wall-clock budget of 5\,s per run. Their
-iteration caps are set high enough that only the time limit stops them.
+\section{Complexity Analysis of Our Code}\label{sec:complexity}
 
-Each run is checked by \code{check\_solution}, and the CSVs record \code{is\_valid} and the
-error list. The cost statistics in the tables are computed over valid runs only, and
-$\text{gap} = 100\,(C-\text{BKS})/\text{BKS}$. All numbers in Sections~\ref{sec:results}
-and~\ref{sec:scaling} come from \code{results/summary.csv}, \code{results/runs.csv} and
-\code{results/scaling.csv}.
+\subsection{Cost per iteration}
+Let $n$ be the number of customers, $L$ the maximum route length, $K$ the fleet size,
+$P$ the GA population, $G=10$ the neighbour-list size and $p_{ls}=0.2$ the local-search
+probability.
+
+\paragraph{Clarke--Wright.} Savings $\Ocal(n^2)$, sort $\Ocal(n^2\log n)$, $\Ocal(n^2)$
+constant-time merge checks, at most $n-1$ merges of $\Ocal(n)$ each:
+$\Ocal(n^2\log n)$ time and $\Ocal(n^2)$ memory. The fleet repair adds $\Ocal(n^2)$ per removed
+route.
+
+\paragraph{One GA generation.} For each of the $P-2$ children: two tournaments $\Ocal(1)$,
+OX $\Ocal(n)$ (a set marks the copied slice), mutation $\Ocal(n)$, Split $\Ocal(nL)$, plus
+\code{split\_bounded} $\Ocal(KnL)$ when the unbounded cut uses more than $K$ routes, plus,
+with probability $p_{ls}$, local search: one 2-opt sweep costs $\sum_r\Ocal(L_r^2)=\Ocal(nL)$,
+one relocate pass $\Ocal(nGL)$, repeated $s$ times until no improvement. Sorting the new
+population costs $\Ocal(P\log P)$ and the duplicate test $\Ocal(1)$ per child (hash set);
+duplicate rejection at most doubles the number of children built. In total
+\[
+T_{\text{gen}} = \Ocal\!\big(P\,[\,n + nL + \beta\,KnL + p_{ls}\, s\, n(G+1)L\,] + P\log P\big),
+\]
+where $\beta$ is the fraction of children whose optimal cut exceeds $K$ routes. With $L$
+and $G$ constant this is $\Ocal(Pn)$ if $\beta\approx 0$, but on MediDrone instances
+$K=\lceil\sum q_i/Q\rceil+1$ grows linearly with $n$, so the bounded Split term is
+$\Ocal(Pn^2L)$ whenever $\beta$ is not small.
+
+\paragraph{One Tabu Search iteration.} Relocate: $n(n+R)$ positions ($R\le K$ routes);
+swap: at most $n^2/2$ pairs; 2-opt: $\sum_r L_r^2/2=\Ocal(nL)$ pairs. Each candidate costs an
+$\Ocal(1)$ delta, an $\Ocal(1)$ capacity check and an $\Ocal(1)$ expected tabu lookup in a hash
+map, so one iteration is $\Theta(n^2)$; applying the chosen move adds $\Ocal(n)$.
+
+\subsection{What delta evaluation saves}
+Re-evaluating a whole solution costs $\Theta(n)$ (it reads $n+R$ edges). Evaluating all
+$\Theta(n^2)$ candidates of one TS iteration that way would cost $\Theta(n^3)$ per
+iteration instead of $\Theta(n^2)$, a factor of $\Theta(n)$. Measured on MediDrone instances
+(Table~\ref{tab:scaling}), one relocate delta takes about $0.40\,\mu$s for every $n$, while a
+full re-evaluation takes $4.15\,\mu$s at $n=25$ and $64.51\,\mu$s at $n=400$: the saving
+grows from a factor 10 to a factor 152, in line with the $\Theta(n)$ prediction. At $n=100$
+the factor is 36: if evaluation dominated the iteration time, the 8037 Tabu iterations
+that fit in 60\,s on the MediDrone instance would shrink to about 220.
+
+\subsection{Empirical validation}
+\code{measure\_scaling} times each step on MediDrone instances from the same generator
+(seed 11372) with $n\in\{25,50,100,200,400\}$. Each value is the best of 3 repetitions
+(the minimum filters operating-system noise). The Tabu time is averaged over 5 iterations
+from the Clarke--Wright start. The GA time is the time of 3 generations minus the time to
+build the initial population, divided by 3. Delta and full evaluation are averaged over
+1000 calls. \code{split\_Q100} uses $Q=100$; \code{split\_Qinf} uses $Q=\sum q_i$, so that the
+capacity never binds. The slope $b$ is a least-squares fit of $\log t$ against $\log n$.
+
+\begin{table}[ht]
+\centering
+\caption{Measured time per call (\code{results/scaling.csv}); ms unless marked $\mu$s.}
+\label{tab:scaling}
+\begin{tabular}{lrrrrrcr}
+\toprule
+Step & $n=25$ & 50 & 100 & 200 & 400 & Theory & Slope $b$\\
+\midrule
+Clarke--Wright run          & 0.201 & 0.766 & 3.349 & 16.228 & 91.833 & $\Ocal(n^2\log n)$ & 2.21\\
+Split, $Q=100$               & 0.041 & 0.090 & 0.191 & 0.394  & 0.882  & $\Ocal(nL)$        & 1.09\\
+Split, $Q=\infty$            & 0.095 & 0.349 & 1.385 & 5.563  & 26.274 & $\Ocal(n^2)$       & 2.02\\
+Tabu iteration              & 0.470 & 1.278 & 6.353 & 21.422 & 76.222 & $\Theta(n^2)$      & 1.88\\
+GA generation               & 7.388 & 35.491 & 142.050 & 480.852 & 1735.078 & see text & 1.95\\
+Relocate delta ($\mu$s)      & 0.398 & 0.396 & 0.396 & 0.405  & 0.425  & $\Ocal(1)$         & 0.02\\
+Full re-evaluation ($\mu$s)  & 4.148 & 7.077 & 14.226 & 27.300 & 64.509 & $\Ocal(n)$        & 0.99\\
+\midrule
+Mean route length $L$       & 4.17 & 4.55 & 4.55 & 4.76 & 4.60 & & \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[ht]
+\centering
+\includegraphics[width=\linewidth]{scaling.png}
+\caption{Log--log time per call against $n$ with fitted slopes (\code{results/scaling.png}).
+Left: algorithm steps. Right: one $\Ocal(1)$ delta against one full $\Ocal(n)$ re-evaluation.}
+\label{fig:scaling}
+\end{figure}
+
+The slopes agree with the analysis (Figure~\ref{fig:scaling}):
+\begin{itemize}
+\item \emph{Split.} $L$ stays between 4.17 and 4.76 while $n$ grows 16-fold, so the
+  capacity-bounded Split is linear ($b=1.09$); without a binding capacity it is quadratic
+  ($b=2.02$), 30 times slower at $n=400$.
+\item \emph{Clarke--Wright.} $b=2.21>2$ is the $\log n$ factor of sorting $\Theta(n^2)$
+  savings.
+\item \emph{Tabu iteration.} $b=1.88$ is slightly below 2. The $\Theta(n^2)$ swap and relocate
+  scans dominate, but the linear parts (2-opt $\Ocal(nL)$, applying a move, copying route
+  paths) still carry weight at $n\le 400$ and flatten the slope.
+\item \emph{GA generation.} $b=1.95$, although Split alone is linear. Counting the calls
+  explains it: at $n=50$, 168 of 275 decodes needed \code{split\_bounded}; at $n=400$, all
+  267 did. With only one spare vehicle the cheapest cut usually needs more than $K$ routes,
+  so the $\Ocal(KnL)$ bounded Split with $K\propto n$ dominates and makes a generation
+  quadratic. This is also why the GA runs far fewer generations on the larger instances
+  (Table~\ref{tab:bench}).
+\item \emph{Delta vs full.} $b=0.02$ against $b=0.99$, as predicted.
+\end{itemize}
+
+% =====================================================================
+\section{Experimental Setup}\label{sec:setup}
+\paragraph{Instances.} The three tiny instances (exact optima known), the Augerat set~A
+instances A-n32-k5, A-n45-k6, A-n60-k9 and A-n80-k10 with the best-known solutions (BKS)
+784, 944, 1354 and 1763 from their CVRPLIB~\cite{cvrplib} \code{.sol} files, and the team instance
+\code{medidrone-n100-s11372}, for which no BKS exists.
+
+\paragraph{Protocol.} Clarke--Wright is deterministic and runs once per instance. The GA
+and TS run once for each recorded seed $1,\dots,10$, with the \emph{same} wall-clock budget
+per instance: 30\,s for $n\le 50$ (tiny, A-n32-k5, A-n45-k6) and 60\,s for larger $n$
+(A-n60-k9, A-n80-k10, MediDrone). Both have no iteration cap; only the budget stops them.
+All runs are sequential and single-threaded on one machine: Windows 11 (ARM64), Qualcomm
+ARMv8 processor, 12 logical CPUs, CPython 3.14.5 (\code{results/hardware.txt}).
+
+\paragraph{Parameters.} GA: $P=50$, OX on every child, $p_m=0.2$, 2 elites, $p_{ls}=0.2$,
+$G=10$, duplicate rejection. TS: tenure drawn from $[7,15]$, full relocate, swap and 2-opt
+neighbourhoods, overloads forbidden, start = Clarke--Wright + kick of
+$\max(3,\lfloor n/10\rfloor)$ relocates. These are the defaults of the code and were fixed
+before the main runs; Section~\ref{sec:tenure} studies the tenure afterwards.
+
+\paragraph{Measurements.} Every final solution is checked by \code{feasibility.py}, and
+\code{runs.csv} stores its routes, validity, errors, cost, runtime, iteration count and its
+best-cost-over-time trace. Cost statistics use valid runs only;
+$\text{gap}=100\,(C-\text{BKS})/\text{BKS}$. The GA and TS are compared per instance with the
+exact two-sided Wilcoxon signed-rank test on seed-paired costs (both runs valid),
+implemented with the standard library. All numbers below come from
+\code{results/summary.csv}, \code{runs.csv}, \code{wilcoxon.csv}, \code{crossings.csv},
+\code{tenure\_study.csv} and \code{scaling.csv}.
 
 % =====================================================================
 \section{Results}\label{sec:results}
 
-\subsection{Tiny instances against the exact optimum}
+\subsection{Tiny instances: do the heuristics reach the optimum?}
 \begin{table}[ht]
 \centering
-\caption{Tiny instances (10 seeds for the GA and Tabu Search, 5\,s each). The optimum was
+\caption{Tiny instances, 30\,s per run. ``Hits'' = runs (out of 10) that reach the optimum
 computed by \code{solve\_exact}.}
 \label{tab:tiny}
-\begin{tabular}{lrrrrrrr}
+\begin{tabular}{lrrrcccr}
 \toprule
-Instance & $n$ & $K$ & Optimum & CW & GA mean & Tabu mean & Tabu worst\\
+Instance & $n$ & $K$ & Optimum & CW & GA hits & TS hits & TS worst\\
 \midrule
-tiny-n7-s1 & 7 & 3 & 324 & 324 & 324 & 324.0 & 324\\
-tiny-n8-s2 & 8 & 4 & 440 & 440 & 440 & 440.0 & 440\\
-tiny-n9-s3 & 9 & 4 & 342 & 342 & 342 & 350.4 & 426\\
+tiny-n7-s1 & 7 & 3 & 324 & 324 (optimal) & 10/10 & 10/10 & 324\\
+tiny-n8-s2 & 8 & 4 & 440 & 440 (optimal) & 10/10 & 10/10 & 440\\
+tiny-n9-s3 & 9 & 4 & 342 & 342 (optimal) & 10/10 & 9/10  & 426\\
 \bottomrule
 \end{tabular}
 \end{table}
-Clarke--Wright and the GA (on all 10 seeds) reach the optimum on all three instances
-(Table~\ref{tab:tiny}). Tabu Search reaches it in 29 of 30 runs. On \code{tiny-n9-s3},
-seed 8 stays at 426, which is 24.56\% above the optimum, with 3 routes. The optimal
-solution uses 4 routes. Tabu Search has no route-opening move, so it cannot leave the 3-route
-structure that its random start produced.
+Clarke--Wright is optimal on all three, and the GA reaches the optimum in all 30 runs
+(Table~\ref{tab:tiny}). TS misses once: on \code{tiny-n9-s3}, seed 9 ends at 426 with 3
+routes, while the optimum uses 4. The kick emptied one of the four Clarke--Wright routes,
+and TS has no move that opens a route again, so it optimised within 3 routes for all 30\,s.
 
 \subsection{CVRPLIB benchmarks}
 \begin{table}[ht]
 \centering
-\caption{CVRPLIB set A, 10 seeds, 5\,s per run. Mean $\pm$ std and gaps are computed over
-valid runs; ``Feas.'' is the fraction of valid runs.}
+\caption{CVRPLIB set A, 10 seeds; 30\,s per run for A-n32-k5 and A-n45-k6, 60\,s for the
+others. Mean $\pm$ std and gaps over valid runs. ``Feas.'' = valid runs out of 10;
+``Iter.'' = mean GA generations or TS iterations. Clarke--Wright takes at most 3\,ms.}
 \label{tab:bench}
-\setlength{\tabcolsep}{4.2pt}
-\begin{tabular}{lr rr rrrr rrrr}
+\setlength{\tabcolsep}{3.4pt}
+\begin{tabular}{lr rr rrrrr rrrrr}
 \toprule
-& & \multicolumn{2}{c}{Clarke--Wright} & \multicolumn{4}{c}{Memetic GA} & \multicolumn{4}{c}{Tabu Search}\\
-\cmidrule(lr){3-4}\cmidrule(lr){5-8}\cmidrule(lr){9-12}
-Instance & BKS & Cost & Gap\% & Mean $\pm$ std & Best & Gap\% & Feas. & Mean $\pm$ std & Best & Gap\% & Feas.\\
+& & \multicolumn{2}{c}{Clarke--Wright} & \multicolumn{5}{c}{Memetic GA} & \multicolumn{5}{c}{Tabu Search}\\
+\cmidrule(lr){3-4}\cmidrule(lr){5-9}\cmidrule(lr){10-14}
+Instance & BKS & Cost & Gap\% & Mean $\pm$ std & Best & Gap\% & Feas. & Iter. & Mean $\pm$ std & Best & Gap\% & Feas. & Iter.\\
 \midrule
-A-n32-k5  & 784  & 842  & 7.40 & 784.0 $\pm$ 0.0   & 784  & 0.00 & 1.0 & 850.1 $\pm$ 39.0  & 796  & 8.43  & 1.0\\
-A-n45-k6  & 944  & 997$^{\dagger}$ & -- & 1024.5 $\pm$ 37.9 & 954  & 8.53 & 1.0 & 964.0 $\pm$ 0.0 & 964 & 2.12 & 0.1\\
-A-n60-k9  & 1354 & 1408 & 3.99 & 1385.0 $\pm$ 14.4  & 1365 & 2.29 & 1.0 & 1484.7 $\pm$ 58.1 & 1394 & 9.65  & 1.0\\
-A-n80-k10 & 1763 & 1840 & 4.37 & 1835.9 $\pm$ 4.7   & 1823 & 4.14 & 1.0 & 2014.3 $\pm$ 101.7 & 1832 & 14.25 & 1.0\\
+A-n32-k5  & 784  & 842  & 7.40 & 784.0 $\pm$ 0.0   & 784  & 0.00 & 10 & 1460 & 827.0 $\pm$ 0.0  & 827  & 5.49 & 10 & 22220\\
+A-n45-k6  & 944  & 997$^{\dagger}$ & -- & 974.4 $\pm$ 10.6 & 953  & 3.22 & 10 & 709 & 961.1 $\pm$ 7.6 & 944 & 1.82 & 7 & 27384\\
+A-n60-k9  & 1354 & 1408 & 3.99 & 1368.8 $\pm$ 4.0  & 1364 & 1.09 & 10 & 912 & 1407.4 $\pm$ 11.9 & 1401 & 3.94 & 10 & 21073\\
+A-n80-k10 & 1763 & 1840 & 4.37 & 1808.1 $\pm$ 13.2 & 1781 & 2.56 & 10 & 660 & 1830.9 $\pm$ 7.8  & 1815 & 3.85 & 10 & 18565\\
 \bottomrule
-\multicolumn{12}{l}{\footnotesize $^{\dagger}$Infeasible: 7 routes for $K=6$; not counted in any statistic.}
+\multicolumn{14}{l}{\footnotesize $^{\dagger}$Infeasible: 7 routes for $K=6$; not counted in any statistic.}
 \end{tabular}
 \end{table}
 
 \begin{figure}[ht]
 \centering
 \includegraphics[width=0.85\linewidth]{gap_by_instance.png}
-\caption{Mean gap to the best-known or optimal cost per instance and algorithm, over valid
-runs (\code{results/gap\_by\_instance.png}).}
+\caption{Mean gap to the optimum or BKS per instance and algorithm over valid runs; error
+bars are the standard deviation over seeds (\code{results/gap\_by\_instance.png}).}
 \label{fig:gaps}
 \end{figure}
 
-The memetic GA has the lowest mean gap on every benchmark. It reaches the BKS on
-A-n32-k5 on all 10 seeds and is feasible in all 40 benchmark runs.
+\begin{table}[ht]
+\centering
+\caption{Exact two-sided Wilcoxon signed-rank test, GA vs TS, paired by seed (pairs where
+both runs are valid; \code{results/wilcoxon.csv}).}
+\label{tab:wilcoxon}
+\begin{tabular}{lrrrrrl}
+\toprule
+Instance & Pairs & GA better & TS better & Median GA & Median TS & $p$\\
+\midrule
+A-n32-k5 & 10 & 10 & 0 & 784.0 & 827.0 & 0.0020\\
+A-n45-k6 & 7 & 1 & 6 & 978 & 964 & 0.0781\\
+A-n60-k9 & 10 & 10 & 0 & 1368.5 & 1405.0 & 0.0020\\
+A-n80-k10 & 10 & 9 & 1 & 1807.5 & 1832.0 & 0.0078\\
+medidrone-n100-s11372 & 10 & 6 & 4 & 18418.5 & 18482.5 & 0.2324\\
+\bottomrule
+\end{tabular}
+\end{table}
 
-A-n45-k6 is the hardest case for fleet feasibility, with $\sum q_i = 593$ against a fleet
-capacity of $6\cdot100=600$.
-\begin{itemize}
-\item \emph{Clarke--Wright} ends with 7 routes, and \code{repair\_fleet} cannot place the
-  remaining customers into the spare capacity of the other routes.
-\item \emph{Tabu Search} is feasible only for seed 1 (cost 964, 2.12\%), whose
-  Clarke--Wright start the search reduces from 7 routes to 6. The other nine runs start from
-  7-route random splits and remain at 7 routes (\code{runs.csv}).
-\end{itemize}
-On A-n60-k9 and A-n80-k10, Clarke--Wright beats the mean Tabu Search result. The best Tabu
-runs (1394 and 1832) are close to the GA, but the spread across seeds is large (std 58.1 and
-101.7). The random starts are weaker than the Clarke--Wright start, and 5\,s is not enough
-for the search to recover from them.
+The memetic GA has the lowest mean gap on A-n32-k5 (BKS in all 10 runs), A-n60-k9 (1.09\%)
+and A-n80-k10 (2.56\%), and is feasible in all 40 benchmark runs
+(Table~\ref{tab:bench}, Figure~\ref{fig:gaps}). On these three instances the difference to
+TS is significant at the 5\% level ($p\le 0.0078$, Table~\ref{tab:wilcoxon}).
+
+A-n45-k6 is the exception. Clarke--Wright cannot fit the 593 units of demand into 6
+routes, but TS turns its 7-route start into a 6-route solution in 7 of 10 runs, and these
+7 runs average 1.82\% with one run at the BKS of 944. The GA is feasible in all 10 runs but
+averages 3.22\%. TS is better in 6 of the 7 pairs, but with 7 pairs this is not
+significant ($p=0.078$). The 3 failing TS runs (seeds 4, 8 and 10) end with 7 routes:
+they stay at 7 routes until the budget ends.
+
+TS is very stable but often stuck: on A-n32-k5 all 10 seeds end at exactly 827. At $n=31$ the kick is only
+3 relocates, which the search undoes quickly, and the default tenure
+of 7--15 is too short to leave the resulting local optimum (Section~\ref{sec:tenure}).
+
+\begin{figure}[ht]
+\centering
+\includegraphics[width=0.49\linewidth]{convergence_A-n45-k6.png}\hfill
+\includegraphics[width=0.49\linewidth]{convergence_A-n60-k9.png}
+\caption{Convergence: best fleet-feasible cost against time (symlog axis), one line per
+seed. A line starts when the run first holds a fleet-feasible solution.}
+\label{fig:conv}
+\end{figure}
+
+Figure~\ref{fig:conv} shows the two search styles. TS improves within the first
+0.1\,s and then flattens: each iteration is cheap, and it reaches its final value early.
+The GA starts later (its initial population of 50 locally optimised tours must be built
+first) and improves in steps over the whole budget; on A-n60-k9 it is still improving after
+10\,s and passes TS. On A-n45-k6 the GA's first fleet-feasible solutions appear after
+0.13--0.62\,s and cost 1148--1581 (22--67\% above the BKS), which shows the fleet-feasibility difficulty of
+Section~\ref{sec:theory}.
 
 \subsection{MediDrone instance}
 \begin{table}[ht]
 \centering
-\caption{\code{medidrone-n100-s11372} ($K=17$, $P=150$), 10 seeds, 5\,s per run. All runs
+\caption{\code{medidrone-n100-s11372} ($K=17$, $P=150$), 10 seeds, 60\,s per run. All runs
 are valid and use 17 routes.}
 \label{tab:medidrone}
-\begin{tabular}{lrrrrrr}
+\begin{tabular}{lrrrrr}
 \toprule
-Algorithm & Mean & Std & Best & Worst & Mean iterations & Mean runtime (s)\\
+Algorithm & Mean & Std & Best & Worst & Mean iterations\\
 \midrule
-Clarke--Wright & 18746 & --- & 18746 & 18746 & --- & 0.006\\
-Memetic GA & 18548.0 & 0.0 & 18548 & 18548 & 27.0 generations & 5.089\\
-Tabu Search & 19935.8 & 942.4 & 18479 & 21306 & 627.2 iterations & 5.083\\
+Clarke--Wright & 18746 & --- & 18746 & 18746 & ---\\
+Memetic GA & 18386.9 & 170.1 & 18071 & 18548 & 397.1 generations\\
+Tabu Search & 18520.1 & 163.2 & 18329 & 18755 & 8037.3 iterations\\
 \bottomrule
 \end{tabular}
 \end{table}
 
 \begin{figure}[ht]
 \centering
-\includegraphics[width=0.7\linewidth]{medidrone_costs.png}
-\caption{Per-seed costs on \code{medidrone-n100-s11372} (\code{results/medidrone\_costs.png}).}
+\includegraphics[width=0.49\linewidth]{medidrone_costs.png}\hfill
+\includegraphics[width=0.49\linewidth]{convergence_medidrone-n100-s11372.png}
+\caption{MediDrone: cost per seed (left, line = mean) and convergence (right).}
 \label{fig:medcosts}
 \end{figure}
 
-The GA returns 18548 on all 10 seeds, which is 1.06\% below Clarke--Wright
-(Table~\ref{tab:medidrone}). The 5\,s budget allows a mean of 27 generations at $n=100$.
-The Tabu Search results depend on the start:
-\begin{itemize}
-\item Seed 1 starts from Clarke--Wright and also ends at 18548.
-\item Seed 6 starts from a random split and finds 18479, the lowest cost observed on this
-  instance.
-\item The remaining random-start runs end between 19365 and 21306.
-\end{itemize}
-No lower bound is available for this instance, so the costs are not reported as gaps.
+On the team instance the GA is best on average (18386.9, 1.92\% below Clarke--Wright) and
+finds the best solution overall, 18071 (3.60\% below Clarke--Wright, seed 7). TS averages
+18520.1 (1.21\% below Clarke--Wright). The GA is better in 6 of 10 seed pairs, which is not
+significant ($p=0.23$). One TS run (seed 1, 18755) ends 9 units above Clarke--Wright: its
+start is a kicked Clarke--Wright solution, and TS did not recover the cost of the kick.
 
-% =====================================================================
-\section{Empirical Scaling}\label{sec:scaling}
-\code{measure\_scaling} times each step on MediDrone instances from the same generator,
-with $n\in\{25,50,100,200,400\}$. Each time is the best of 3 repetitions, and the Tabu time
-is the mean over 5 iterations. \code{split\_Q100} uses the instance capacity $Q=100$.
-\code{split\_Qinf} sets $Q=\sum q_i$, so that a single route can carry everything. The
-exponent $b$ is the slope of a least-squares fit of $\log t$ against $\log n$.
+\begin{figure}[ht]
+\centering
+\includegraphics[width=0.72\linewidth]{routes_medidrone.png}
+\caption{Best MediDrone solution found (memetic GA, seed 7, cost 18071, 17 routes). Each
+route has its own colour and line style; the dashed vertical line is the Bosphorus.}
+\label{fig:routes}
+\end{figure}
 
 \begin{table}[ht]
 \centering
-\caption{Measured time per call in milliseconds (\code{results/scaling.csv}).}
-\label{tab:scaling}
-\begin{tabular}{lrrrrrcr}
+\caption{Bosphorus crossings in the best solution of each algorithm (\code{results/crossings.csv}).}
+\label{tab:crossings}
+\begin{tabular}{lrrrrr}
 \toprule
-Step & $n=25$ & 50 & 100 & 200 & 400 & Theory & Fitted $b$\\
+Algorithm (seed) & Cost & Routes & Routes crossing & Crossing edges & Penalty (share of cost)\\
 \midrule
-Clarke--Wright run    & 0.287 & 1.167 & 5.038 & 21.941 & 125.378 & $\Ocal(n^2\log n)$ & 2.18\\
-Split, $Q=100$        & 0.065 & 0.142 & 0.299 & 0.614  & 1.272   & $\Ocal(nL)$        & 1.07\\
-Split, $Q=\infty$     & 0.144 & 0.553 & 2.160 & 8.609  & 38.503  & $\Ocal(n^2)$       & 2.01\\
-Tabu iteration        & 0.737 & 1.966 & 9.613 & 32.327 & 111.918 & $\Ocal(n^2)$       & 1.85\\
-\midrule
-Mean route length $L$ & 4.17 & 4.55 & 4.55 & 4.76 & 4.60 & & \\
+Clarke--Wright & 18746 & 17 & 12 & 24 & 3600 (19.2\%)\\
+Memetic GA (7) & 18071 & 17 & 10 & 20 & 3000 (16.6\%)\\
+Tabu Search (3) & 18329 & 17 & 11 & 22 & 3300 (18.0\%)\\
 \bottomrule
 \end{tabular}
 \end{table}
 
+% =====================================================================
+\subsection{Parameter sensitivity: tabu tenure}\label{sec:tenure}
+We ran TS on A-n60-k9 with fixed tenures 3, 7, 15, 30, 60 and the default range $[7,15]$,
+5 seeds each, 20\,s per run, all from the same Clarke--Wright + kick starts
+(Figure~\ref{fig:tenure}). Tenures up to 15 give the same result, a mean gap of 3.65--3.68\%,
+and the default $[7,15]$ gives exactly the same costs as the fixed tenure 15. Tenure 30
+lowers the mean to 3.19\% (best 2.36\%), and tenure 60 to 0.96\% (best run 1361, 0.52\%),
+better than the GA's 1.09\% with a 60\,s budget. A short tenure lets TS return to the same
+local optimum within a few iterations: on A-n60-k9, with about 59 customers in 9 routes, a
+customer forbidden from its old route for only 15 iterations is soon free to move back. A
+tenure close to $n$ forces the search through more of the solution space. The main
+experiments used the default tenure, which was fixed before this study; the study suggests
+that TS results on all benchmarks would improve with a tenure near $n$.
+
 \begin{figure}[ht]
 \centering
-\includegraphics[width=0.8\linewidth]{scaling.png}
-\caption{Log--log runtime against $n$ with fitted exponents (\code{results/scaling.png}).}
-\label{fig:scaling}
+\includegraphics[width=0.68\linewidth]{tenure_study.png}
+\caption{Tabu tenure sensitivity on A-n60-k9 (20\,s per run, 5 seeds): mean gap, standard
+deviation and individual seeds (\code{results/tenure\_study.png}).}
+\label{fig:tenure}
 \end{figure}
 
-The fitted exponents match the analysis (Table~\ref{tab:scaling}).
-\begin{itemize}
-\item \emph{Split.} The mean route length stays between 4.17 and 4.76 as $n$ grows 16-fold,
-  so the capacity-bounded Split grows linearly ($b=1.07$). The unbounded Split shows the
-  quadratic worst case ($b=2.01$). At $n=400$ the gap between them is a factor of 30.
-\item \emph{Clarke--Wright.} The exponent of 2.18 is above 2, consistent with the $\log n$
-  factor from sorting the $\Theta(n^2)$ savings.
-\item \emph{Tabu Search.} The exponent of 1.85 is slightly below 2. Part of each iteration
-  scales linearly: the 2-opt neighbourhood is $\Ocal(nL)$ and applying a move is $\Ocal(n)$.
-  At these sizes, these terms keep the measured slope below the $\Ocal(n^2)$ asymptote.
-\end{itemize}
+% =====================================================================
+\section{Discussion}\label{sec:discussion}
+
+\paragraph{Which algorithm is better, and why.} Clarke--Wright is a strong start (4.0--7.4\%
+above the BKS in milliseconds) but cannot handle a tight fleet: on A-n45-k6 it leaves 7
+routes. The memetic GA is the most reliable method in our data: it is feasible in every
+run, reaches the BKS on A-n32-k5 and the optimum on all tiny instances, and is
+significantly better than TS on A-n32-k5, A-n60-k9 and A-n80-k10. Its strength is the
+division of work: the GA searches over customer orders, Split places the route boundaries
+optimally for each order, and the local search polishes each child. Its weakness is speed
+on instances with one spare vehicle, where every decode needs the bounded Split
+(Section~\ref{sec:complexity}). TS is best where it can work from a good structure: on
+A-n45-k6 it reduces Clarke--Wright's 7 routes to 6 and gets closer to the BKS than the GA.
+With the default tenure it converges within a second and then stays in a local optimum;
+with tenure 60 it beats the GA on A-n60-k9 (Section~\ref{sec:tenure}). Both
+metaheuristics improve the team instance clearly (by 1.2--3.6\% over Clarke--Wright), and
+there the difference between them is not significant.
+
+\paragraph{The effect of the Bosphorus.} The European customers need
+$968$ units of demand, so at least $\lceil 968/100\rceil=10$ routes must serve
+European clinics, and each such route crosses at least twice because the depot is
+Asian. The GA's best solution reaches exactly this minimum: 10 crossing routes with 20
+crossings (Table~\ref{tab:crossings}), and every crossing route crosses exactly twice. Of
+these 10 routes, 9 serve only European customers and are loaded to 93--100 units, and one
+serves both sides. Clarke--Wright needs 12 crossing routes (3 of them mixed), TS 11 (2
+mixed). The penalty therefore shapes the solution in two ways
+(Figure~\ref{fig:routes}): routes stay on one side, and the European routes are packed
+almost full to minimise the number of crossings. In the GA's best solution the 3000 units
+of penalty are 16.6\% of the cost. That is 600 less than in the Clarke--Wright solution,
+which is 89\% of the 675-unit cost difference between the two.
+
+\paragraph{Theory vs.\ practice.} An approximation algorithm such as ITP with Christofides
+(Section~\ref{sec:theory}) guarantees, for every instance, a cost of at most about 2.5
+times the optimum for unit demands, and more for unsplittable demands. Our metaheuristics
+guarantee nothing, yet their worst valid runs are at most 6.5\% above the BKS on all
+four benchmarks. The guarantee covers the worst case over all instances, including
+adversarial ones that practice never produces; the metaheuristics are tuned to the
+typical structure of real instances and use their time budget to keep improving. Industry
+accepts methods without guarantees because the decision is repeated every day on similar
+data, quality can be measured against benchmarks and lower bounds, the solution is checked
+for feasibility independently (like our checker), and a 2\% saving on every day's routes is
+worth more than a bound of 150\%. A guarantee still has value as a safety net and as a
+start: Clarke--Wright, which has no good worst-case bound either, is what our GA and TS
+build on.
+
+\paragraph{Personal reflection.}
+% TODO (team, in your own words): what surprised you most, the hardest bug and how you
+% found it, and what you would try next. Facts from this project you may use:
+% - A-n45-k6: Clarke-Wright and random starts get stuck at 7 routes (only ~1 in 2000
+%   random orders fits in 6 routes); the Bin Packing argument explains why.
+% - Tenure 60 instead of 7-15 cut the TS gap on A-n60-k9 from 3.65% to 0.96%.
+% - Bosphorus: the best solution has the minimum possible 10 crossing routes.
+% - Next steps: TS with a tenure near n and a route-opening move; hybrid GA + TS
+%   (TS as the GA's local search); ALNS; time windows.
+\emph{[To be written by the team.]}
 
 % =====================================================================
 \section{Conclusion}
-\begin{itemize}
-\item \emph{Complexity.} CVRP-D is NP-complete, and the reduction from Euclidean TSP holds
-  with $P=0$. The side-based Bosphorus penalty is a cut semimetric and preserves the
-  triangle inequality. Only the EUC\_2D rounding violates it, by at most one unit.
-\item \emph{Algorithms.} Under an equal 5\,s budget the memetic GA is the most reliable
-  method. It is feasible in all runs, reaches the BKS on A-n32-k5, and has the lowest mean
-  gap on every benchmark. Tabu Search produces individual runs that are competitive,
-  including the best MediDrone cost of 18479. Its results depend heavily on the start
-  solution, and without a route-opening move it cannot repair a fleet excess on tight
-  instances such as A-n45-k6.
-\item \emph{Scaling.} The measured exponents (2.18, 1.07, 2.01, 1.85) agree with the stated
-  bounds.
-\end{itemize}
+CVRP-D is NP-complete (HC $\le_p$ TSP $\le_p$ CVRP), and even deciding whether $K$
+vehicles suffice is NP-complete by a reduction from Bin Packing. The Bosphorus penalty is a
+cut semimetric and keeps the distance metric. Under equal budgets of 30--60\,s and 10 seeds,
+the memetic GA with Split is the most reliable method: always feasible, BKS on A-n32-k5,
+1.09--3.22\% mean gap on the other benchmarks and the best team-instance solution, 18071.
+Tabu Search is faster per step and best on the fleet-tight A-n45-k6 (BKS in one run), and
+the tenure study shows that a longer tenure (60) cuts its gap on A-n60-k9 from 3.65\% to
+0.96\%. The measured slopes (Clarke--Wright 2.21, Split 1.09 vs 2.02, Tabu iteration 1.88,
+GA generation 1.95, delta 0.02 vs full re-evaluation 0.99) match the analysis once the
+bounded Split in the GA is taken into account.
 
-% =====================================================================
+
 \appendix
 \section{Reproducibility}
 All commands are run from the repository root with Python, numpy and matplotlib:
@@ -566,19 +928,42 @@ proofs, and explanations during the oral defense.
   in \LaTeX{} while keeping the core analysis and prose authored by the team.''
 \end{itemize}
 
-\begin{thebibliography}{9}
-\bibitem{papadimitriou1977}
-C.~H. Papadimitriou, ``The Euclidean travelling salesman problem is NP-complete,''
-\emph{Theoretical Computer Science}, 4(3):237--244, 1977.
-\bibitem{garey1976}
-M.~R. Garey, R.~L. Graham, D.~S. Johnson, ``Some NP-complete geometric problems,''
-\emph{Proc. 8th ACM STOC}, 10--22, 1976.
-\bibitem{prins2004}
-C.~Prins, ``A simple and effective evolutionary algorithm for the vehicle routing problem,''
-\emph{Computers \& Operations Research}, 31(12):1985--2002, 2004.
+\begin{thebibliography}{99}
+\bibitem{altinkemer1987}
+K.~Altinkemer, B.~Gavish, ``Heuristics for unequal weight delivery problems with a fixed
+error guarantee,'' \emph{Operations Research Letters}, 6(4):149--158, 1987.
+\bibitem{blauth2022}
+J.~Blauth, V.~Traub, J.~Vygen, ``Improving the approximation ratio for capacitated vehicle
+routing,'' \emph{Mathematical Programming}, 197:451--497, 2023.
 \bibitem{clarke1964}
 G.~Clarke, J.~W. Wright, ``Scheduling of vehicles from a central depot to a number of
 delivery points,'' \emph{Operations Research}, 12(4):568--581, 1964.
+\bibitem{garey1976}
+M.~R. Garey, R.~L. Graham, D.~S. Johnson, ``Some NP-complete geometric problems,''
+\emph{Proc. 8th ACM STOC}, 10--22, 1976.
+\bibitem{garey1979}
+M.~R. Garey, D.~S. Johnson, \emph{Computers and Intractability: A Guide to the Theory of
+NP-Completeness}, W.~H. Freeman, 1979.
+\bibitem{glover1997}
+F.~Glover, M.~Laguna, \emph{Tabu Search}, Kluwer, 1997.
+\bibitem{haimovich1985}
+M.~Haimovich, A.~H.~G. Rinnooy Kan, ``Bounds and heuristics for capacitated routing
+problems,'' \emph{Mathematics of Operations Research}, 10(4):527--542, 1985.
+\bibitem{karp1972}
+R.~M. Karp, ``Reducibility among combinatorial problems,'' in \emph{Complexity of Computer
+Computations}, Plenum, 85--103, 1972.
+\bibitem{papadimitriou1977}
+C.~H. Papadimitriou, ``The Euclidean travelling salesman problem is NP-complete,''
+\emph{Theoretical Computer Science}, 4(3):237--244, 1977.
+\bibitem{prins2004}
+C.~Prins, ``A simple and effective evolutionary algorithm for the vehicle routing problem,''
+\emph{Computers \& Operations Research}, 31(12):1985--2002, 2004.
+\bibitem{toth2014}
+P.~Toth, D.~Vigo (eds.), \emph{Vehicle Routing: Problems, Methods, and Applications},
+2nd ed., SIAM, 2014.
+\bibitem{cvrplib}
+CVRPLIB, Capacitated Vehicle Routing Problem Library, \url{http://vrp.galgos.inf.puc-rio.br}
+(instances and best-known solutions of set A).
 \end{thebibliography}
 
 \end{document}

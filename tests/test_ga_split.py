@@ -184,6 +184,9 @@ def test_ga_deterministic_and_monotone():
     b = run_ga(inst, seed=5, pop_size=20, generations=15)
     assert a.best.routes == b.best.routes and a.history == b.history
     assert all(x >= y for x, y in zip(a.history, a.history[1:]))  # elitism: never worse
+    # trace: (time, cost) pairs, time non-decreasing, cost strictly improving, ends at the best
+    assert all(t1 <= t2 and c1 > c2 for (t1, c1), (t2, c2) in zip(a.trace, a.trace[1:]))
+    assert a.trace[-1][1] == a.best.cost and a.trace[0][1] == a.history[0]
     assert check_solution(a.best, inst).is_valid
     assert a.best.cost <= clarke_wright(inst).cost  # CW order is in the initial population
 

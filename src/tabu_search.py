@@ -41,7 +41,6 @@ from dataclasses import dataclass
 
 from src.clarke_wright import clarke_wright
 from src.feasibility import check_solution
-from src.ga_split import decode
 from src.solution import ProblemInstance, Solution
 
 Fitness = tuple[int, int]  # (routes over K, total cost)
@@ -106,12 +105,15 @@ class TabuResult:
         fitness: (routes over K, cost) of ``best``.
         history: Best cost after each iteration (index 0 = start solution).
         iterations: Iterations actually run.
+        trace: (seconds since start, best cost) at the start and at every new best
+            (fleet-feasible bests only; for best-cost-vs-time convergence plots).
     """
 
     best: Solution
     fitness: Fitness
     history: list[int]
     iterations: int
+    trace: list[tuple[float, int]]
 
 
 def run_tabu(
@@ -154,6 +156,7 @@ def run_tabu(
     best = _snapshot(routes, cost)
     _verify(best, best_fit, inst)
     history = [cost]
+    trace = [(0.0, cost)] if best_fit[0] == 0 else []
     tabu_until: dict[tuple, int] = {}
 
     it = 0
@@ -216,29 +219,40 @@ def run_tabu(
         if fit < best_fit:
             best_fit, best = fit, _snapshot(routes, cost)
             _verify(best, best_fit, inst)
+            if best_fit[0] == 0:
+                trace.append((time.perf_counter() - t0, cost))
         history.append(best_fit[1])
 
-    return TabuResult(best, best_fit, history, it)
+    return TabuResult(best, best_fit, history, it, trace)
 
 
-def random_start(inst: ProblemInstance, seed: int, attempts: int = 20) -> Solution:
-    """Seeded random starting solution: shuffle customers 1..n, cut the order with Split.
+def kick_start(inst: ProblemInstance, seed: int, moves: int | None = None) -> Solution:
+    """Clarke-Wright solution perturbed by ``moves`` seeded random relocates (the "kick").
 
-    ``ga_split.decode`` uses the optimal Split and, if that needs more than K routes,
-    the K-bounded Split. If an order cannot be cut into <= K routes, another shuffle
-    is tried (up to ``attempts``); if none works, the fewest-excess order is returned
-    and Tabu Search starts fleet-infeasible (its fitness then drives the route count down).
-    Capacity and coverage always hold. Returns a Solution with cost evaluated.
+    Each kick moves a random customer to a random position in another route that
+    has room for it, so capacity and coverage always hold and the route count never
+    grows. Default ``moves`` = max(3, n // 10). Same seed -> same start; different
+    seeds give different CW-based starts, so 10-seed runs are not identical.
+    Returns a Solution with cost evaluated.
     """
     rng = random.Random(seed)
-    best = None
-    for _ in range(attempts):
-        fit, sol = decode(rng.sample(range(1, inst.n + 1), inst.n), inst)
-        if best is None or fit < best[0]:
-            best = (fit, sol)
-        if fit[0] == 0:
-            break
-    return best[1]
+    q, cap = inst.demand, inst.capacity
+    routes = [r[:] for r in clarke_wright(inst).routes]
+    load = [sum(q[x] for x in r) for r in routes]
+    for _ in range(moves if moves is not None else max(3, inst.n // 10)):
+        a = rng.choice([k for k, r in enumerate(routes) if r])
+        u = routes[a][rng.randrange(len(routes[a]))]
+        targets = [b for b in range(len(routes)) if b != a and load[b] + q[u] <= cap]
+        if not targets:
+            continue
+        b = rng.choice(targets)
+        routes[a].remove(u)
+        routes[b].insert(rng.randint(0, len(routes[b])), u)
+        load[a] -= q[u]
+        load[b] += q[u]
+    sol = Solution([r for r in routes if r])
+    sol.evaluate(inst)
+    return sol
 
 
 def _apply(move: tuple, routes: list[list[int]], paths: list[list[int]],
